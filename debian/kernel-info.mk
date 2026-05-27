@@ -11,20 +11,22 @@ VARIANT = android
 KERNEL_BASE_VERSION = 4.19-325
 
 # The kernel cmdline to use
-KERNEL_BOOTIMAGE_CMDLINE = androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 cgroup.memory=nokmem,nosocket reboot=panic_warm buildproduct=pdx206 buildid=EDO-1.0.1-201109-1152 oemboot.earlymount=/dev/block/platform/soc/1d84000.ufshc/by-name/oem:/mnt/oem:ext4:ro,barrier=1:wait,slotselect,first_stage_mount droidian.lvm.prefer
+# Sony Sony-specific bits (buildid=EDO-..., oemboot.earlymount=/mnt/oem)
+# removed. console=null matches what the device's stock TWRP boots with.
+KERNEL_BOOTIMAGE_CMDLINE = console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 cgroup.memory=nokmem,nosocket reboot=panic_warm buildproduct=gts7xlwifi droidian.lvm.prefer
 
 # Slug for the device vendor. This is going to be used in the KERNELRELASE
 # and package names.
-DEVICE_VENDOR = sony
+DEVICE_VENDOR = samsung
 
 # Slug for the device model. Like above.
-DEVICE_MODEL = pdx206
+DEVICE_MODEL = gts7xlwifi
 
 # Slug for the device platform. If unsure, keep this commented.
-DEVICE_PLATFORM = edo
+DEVICE_PLATFORM = kona
 
 # Marketing-friendly full-name. This will be used inside package descriptions
-DEVICE_FULL_NAME = Sony Xperia 5 II
+DEVICE_FULL_NAME = Samsung Galaxy Tab S7+ Wi-Fi
 
 # Whether to use configuration fragments to augment the kernel configuration.
 # If unsure, keep this to 0.
@@ -35,7 +37,7 @@ KERNEL_CONFIG_USE_FRAGMENTS = 1
 # If unsure, keep this to 0.
 KERNEL_CONFIG_USE_DIFFCONFIG = 0
 
-KERNEL_CONFIG_EXTRA_FRAGMENTS=extra.config
+KERNEL_CONFIG_EXTRA_FRAGMENTS = kona-sec-common.config gts7xlwifi.config extra.config
 
 # The diffconfig to apply. Only used when KERNEL_CONFIG_USE_DIFFCONFIG is
 # enabled.
@@ -56,9 +58,8 @@ KERNEL_IMAGE_DTB = arch/arm64/boot/dts/vendor/qcom/*.dtb
 KERNEL_IMAGE_WITH_DTB_OVERLAY = 1
 
 # Path to the DTB overlay.
-# If you leave this undefined, an attempt to find it automatically
-# will be made.
-KERNEL_IMAGE_DTB_OVERLAY = arch/arm64/boot/dts/vendor/somc/*.dtbo
+# Samsung gts7xlwifi ships EU HW revs r02..r06 as separate dtbo overlays.
+KERNEL_IMAGE_DTB_OVERLAY = arch/arm64/boot/dts/samsung/gts7xl/*.dtbo
 
 # Whether to include the DTB Overlay into the kernel image
 # Use 0 (no, default) or 1.
@@ -102,7 +103,7 @@ DEVICE_VBMETA_REQUIRED = 1
 # Samsung devices require a special flag. Enable the following if your
 # device is a Samsung device that requires flag 0 to be present
 # Use 0 (no, default) or 1.
-DEVICE_VBMETA_IS_SAMSUNG = 0
+DEVICE_VBMETA_IS_SAMSUNG = 1
 
 ########################################################################
 # Automatic flashing on package upgrades
@@ -112,8 +113,9 @@ DEVICE_VBMETA_IS_SAMSUNG = 0
 FLASH_ENABLED = 1
 
 # If your device is treble-ized, but aonly, you should set the following to
-# 1 (yes).
-FLASH_IS_AONLY = 0
+# 1 (yes). Tab S7+ is A-only (confirmed: no slot_suffix prop, single boot
+# partition in PIT).
+FLASH_IS_AONLY = 1
 
 # `flash-bootimage` defaults are enough for most recent devices, but legacy
 # devices won't work out of the box.
@@ -129,23 +131,20 @@ FLASH_IS_LEGACY_DEVICE = 0
 # fallback to FLASH_INFO_CPU
 
 # Device manufacturer. This must match the `ro.product.vendor.manufacturer`
-# Android property. If you don't want to specify this, leave it undefined,
-# FLASH_INFO_CPU will be checked instead.
-#FLASH_INFO_MANUFACTURER = Sony
+# Android property.
+FLASH_INFO_MANUFACTURER = samsung
 
 # Device model. This must match the `ro.product.vendor.model`
-# Android property. If you don't want to specify this, leave it undefined,
-# FLASH_INFO_CPU will be checked instead.
-#FLASH_INFO_MODEL = Pdx206
+# Android property. On SM-T970 the vendor model is SM-T970.
+FLASH_INFO_MODEL = SM-T970
 
-# Device CPU. This will be grepped against /proc/cpuinfo to check if
-# we're running on the specific device. Note this is a last-resort
-# method, specifying FLASH_INFO_MANUFACTURER and FLASH_INFO_MODEL is
-# recommended.
+# Device CPU. Last-resort match against /proc/cpuinfo.
 FLASH_INFO_CPU = Qualcomm Technologies, Inc KONA
 
-# Space-separated list of supported device ids as reported by fastboot
-FLASH_INFO_DEVICE_IDS = SO-52A XQ-AS52 XQ-AS62 XQ-AS72 A002SO SOG02
+# Space-separated list of supported device ids as reported by fastboot.
+# Tab S7+ Wi-Fi (SM-T970) is the primary target; Tab S7+ LTE/5G variants
+# (SM-T976B, SM-T975) share the kernel and DT and only differ at the modem.
+FLASH_INFO_DEVICE_IDS = SM-T970 SM-T975 SM-T976 SM-T976B gts7xlwifi gts7xl
 
 ########################################################################
 # Kernel build settings
@@ -184,5 +183,6 @@ DEB_BUILD_FOR = arm64
 # Target kernel architecture
 KERNEL_ARCH = arm64
 
-# Kernel target to build
-KERNEL_BUILD_TARGET = Image.gz
+# Kernel target to build. Samsung sm8250 produces Image (uncompressed);
+# the LineageOS kernel does not enable CONFIG_KERNEL_GZ for the final image.
+KERNEL_BUILD_TARGET = Image
