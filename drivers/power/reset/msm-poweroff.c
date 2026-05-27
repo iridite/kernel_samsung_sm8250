@@ -27,7 +27,11 @@
 #include <soc/qcom/watchdog.h>
 #include <soc/qcom/minidump.h>
 
-#include <linux/slab.h>
+#include <linux/sec_debug.h>
+
+#if defined(CONFIG_SEC_ABC)
+#include <linux/sti/abc_common.h>
+#endif
 
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
@@ -51,7 +55,18 @@
 #define KASLR_OFFSET_BIT_MASK	0x00000000FFFFFFFF
 
 static int restart_mode;
-static void *restart_reason, *dload_type_addr;
+
+#ifdef CONFIG_SEC_DEBUG
+/* This variable is updated in sec_debug
+ because device_initcall might be called too late to use this
+ when any expection occurs in the early stage of bootup.
+*/
+extern void __iomem *restart_reason;
+#else
+static void __iomem *restart_reason;
+#endif
+
+static void __iomem *dload_type_addr;
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
@@ -75,8 +90,6 @@ static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
 
 static bool force_warm_reboot;
-static void *rr_base;
-static int no_of_reasons;
 
 /* interface for exporting attributes */
 struct reset_attribute {
@@ -166,7 +179,10 @@ int scm_set_dload_mode(int arg1, int arg2)
 				&desc);
 }
 
-static void set_dload_mode(int on)
+#ifndef CONFIG_SEC_DEBUG
+static
+#endif
+void set_dload_mode(int on)
 {
 	int ret;
 
@@ -183,6 +199,10 @@ static void set_dload_mode(int on)
 		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
 
 	dload_mode_enabled = on;
+
+#ifdef CONFIG_SEC_DEBUG
+	pr_err("set_dload_mode <%d> ( %lx )\n", on, CALLER_ADDR0);
+#endif
 }
 
 static bool get_dload_mode(void)
@@ -190,6 +210,7 @@ static bool get_dload_mode(void)
 	return dload_mode_enabled;
 }
 
+#ifndef CONFIG_SEC_DEBUG
 static void enable_emergency_dload_mode(void)
 {
 	int ret;
@@ -216,6 +237,7 @@ static void enable_emergency_dload_mode(void)
 	if (ret)
 		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
 }
+#endif
 
 static int dload_set(const char *val, const struct kernel_param *kp)
 {
@@ -468,118 +490,23 @@ static void halt_spmi_pmic_arbiter(void)
 	}
 }
 
-struct restart_reason_param {
-	char cmd[256];
-	u32 pon_reg_value;
-	u32 imem_reason;
-	bool is_reboot_allowed;
-};
-
-static int msm_get_dt_restart_reason(void)
-{
-	int rc = -1;
-	struct device_node *np, *nc = NULL;
-	u32 data[2] = {0};
-	const char *cmd;
-	struct restart_reason_param *rr = NULL;
-
-	np = of_find_compatible_node(NULL, NULL, "qcom,restart-reason");
-	if (!np) {
-		pr_err("unable to find restart-reason node\n");
-		goto exit;
-	}
-
-	for_each_child_of_node(np, nc)
-		no_of_reasons++;
-
-	if (!no_of_reasons)
-		goto exit;
-
-	rr = kzalloc((no_of_reasons *
-			sizeof(struct restart_reason_param)), GFP_KERNEL);
-	if (!rr) {
-		pr_err("unable to get memory for restart reason\n");
-		goto exit;
-	}
-
-	rr_base = (void *)rr;
-
-	for_each_child_of_node(np, nc) {
-		rc = of_property_read_string(nc, "cmd", &cmd);
-		if (rc == 0) {
-			rc = of_property_read_u32_array(nc, "reg-val", data, 2);
-			if (rc != 0) {
-				pr_err("Unable to find %s reg-val\n", cmd);
-				goto exit;
-			}
-
-			strlcpy(rr->cmd, cmd, sizeof(rr->cmd));
-			rr->pon_reg_value = data[0];
-			rr->imem_reason = data[1];
-			rr->is_reboot_allowed =
-				of_property_read_bool(nc, "reboot-cmd");
-
-			rr += 1;
-		}
-	}
-
-	return 0;
-
-exit:
-	return rc;
-}
-
-static bool is_valid_msm_reboot_cmd(const char *cmd)
-{
-	int count;
-	struct restart_reason_param *rr = NULL;
-
-	if (!rr_base)
-		return false;
-
-	rr = (struct restart_reason_param *)rr_base;
-
-	for (count = 0; count < no_of_reasons; count++) {
-		if (strncmp(rr->cmd, cmd, sizeof(rr->cmd)) == 0)
-			return rr->is_reboot_allowed;
-
-		rr += 1;
-	}
-
-	return false;
-}
-
-static void msm_set_dt_restart_reason(const char *cmd)
-{
-	int count;
-	struct restart_reason_param *rr = NULL;
-
-	if (!rr_base)
-		return;
-
-	rr = (struct restart_reason_param *)rr_base;
-
-	for (count = 0; count < no_of_reasons; count++) {
-		if (strncmp(rr->cmd, cmd, sizeof(rr->cmd)) == 0) {
-			qpnp_pon_set_restart_reason(rr->pon_reg_value);
-			__raw_writel(rr->imem_reason, restart_reason);
-			break;
-		}
-
-		rr += 1;
-	}
-}
-
 static void msm_restart_prepare(const char *cmd)
 {
 	bool need_warm_reset = false;
+
+#ifndef CONFIG_SEC_DEBUG
 	/* Write download mode flags if we're panic'ing
 	 * Write download mode flags if restart_mode says so
 	 * Kill download mode if master-kill switch is set
 	 */
 
-	set_dload_mode(false);
+	set_dload_mode(download_mode &&
+			(in_panic || restart_mode == RESTART_DLOAD));
+#else
+	sec_debug_update_dload_mode(restart_mode, in_panic);
+#endif
 
+#ifndef CONFIG_SEC_DEBUG
 	if (qpnp_pon_check_hard_reset_stored()) {
 		/* Set warm reset as true when device is in dload mode */
 		if (get_dload_mode() ||
@@ -593,23 +520,77 @@ static void msm_restart_prepare(const char *cmd)
 
 	if (force_warm_reboot)
 		pr_info("Forcing a warm reset of the system\n");
+#else
+	need_warm_reset = get_dload_mode();
+#endif
 
-	/* Soft reset the PMIC always. */
-	qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+	/* Hard reset the PMIC unless memory contents must be maintained. */
+	if (force_warm_reboot || need_warm_reset)
+		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+	else
+		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
 
-	if (in_panic) {
-		msm_set_dt_restart_reason("panic");
-	} else if (cmd != NULL) {
-		if (!strncmp(cmd, "edl", 3)) {
+	if (cmd != NULL) {
+		if (!strncmp(cmd, "bootloader", 10)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_BOOTLOADER);
+			__raw_writel(0x77665500, restart_reason);
+		} else if (!strncmp(cmd, "recovery-update", 15)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_RECOVERY_UPDATE);
+			__raw_writel(0x776655cc, restart_reason);
+		} else if (!strncmp(cmd, "recovery", 8)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_RECOVERY);
+			__raw_writel(0x77665502, restart_reason);
+		} else if (!strcmp(cmd, "rtc")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_RTC);
+			__raw_writel(0x77665503, restart_reason);
+		} else if (!strcmp(cmd, "dm-verity device corrupted")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_DMVERITY_CORRUPTED);
+			__raw_writel(0x77665508, restart_reason);
+		} else if (!strcmp(cmd, "dm-verity enforcing")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_DMVERITY_ENFORCE);
+			__raw_writel(0x77665509, restart_reason);
+		} else if (!strcmp(cmd, "keys clear")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_KEYS_CLEAR);
+			__raw_writel(0x7766550a, restart_reason);
+		} else if (!strncmp(cmd, "cross_fail", 10)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_CROSS_FAIL);
+			__raw_writel(0x7766550c, restart_reason);
+#ifdef CONFIG_SEC_PERIPHERAL_SECURE_CHK
+		} else if (!strcmp(cmd, "peripheral_hw_reset")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_SECURE_CHECK_FAIL);
+			__raw_writel(0x7766550f, restart_reason);
+#endif
+		} else if (!strncmp(cmd, "oem-", 4)) {
+			unsigned long code;
+			int ret;
+
+			ret = kstrtoul(cmd + 4, 16, &code);
+			if (!ret)
+				__raw_writel(0x6f656d00 | (code & 0xff),
+					     restart_reason);
+#ifndef CONFIG_SEC_DEBUG
+		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
-		} else if (is_valid_msm_reboot_cmd(cmd)) {
-			msm_set_dt_restart_reason(cmd);
+#endif
+#if defined(CONFIG_SEC_ABC)
+		} else if (!strncmp(cmd, "user_dram_test", 14) && sec_abc_get_enabled()) {
+			qpnp_pon_set_restart_reason(PON_RESTART_REASON_USER_DRAM_TEST);
+#endif
 		} else {
-			msm_set_dt_restart_reason("unknown");
+			__raw_writel(0x77665501, restart_reason);
 		}
-	} else
-		msm_set_dt_restart_reason("unknown");
+	}
 
+	sec_debug_update_restart_reason(cmd, in_panic, restart_mode);
 	flush_cache_all();
 
 	/*outer_flush_all is not supported by 64bit kernel*/
@@ -670,7 +651,6 @@ static void do_msm_poweroff(void)
 	set_dload_mode(0);
 	scm_disable_sdi();
 	qpnp_pon_system_pwr_off(PON_POWER_OFF_SHUTDOWN);
-	msm_set_dt_restart_reason("none");
 
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
@@ -678,6 +658,19 @@ static void do_msm_poweroff(void)
 	msleep(10000);
 	pr_err("Powering off has failed\n");
 }
+
+#ifdef CONFIG_SEC_DEBUG
+static int dload_mode_normal_reboot_handler(struct notifier_block *nb,
+		unsigned long l, void *p)
+{
+	set_dload_mode(0);
+	return 0;
+}
+
+static struct notifier_block dload_reboot_block = {
+	.notifier_call = dload_mode_normal_reboot_handler
+};
+#endif
 
 static int msm_restart_probe(struct platform_device *pdev)
 {
@@ -687,6 +680,10 @@ static int msm_restart_probe(struct platform_device *pdev)
 	int ret = 0;
 
 	setup_dload_mode_support();
+
+#ifdef CONFIG_SEC_DEBUG
+	register_reboot_notifier(&dload_reboot_block);
+#endif
 
 	np = of_find_compatible_node(NULL, NULL,
 				"qcom,msm-imem-restart_reason");
@@ -713,10 +710,6 @@ static int msm_restart_probe(struct platform_device *pdev)
 
 	pm_power_off = do_msm_poweroff;
 	arm_pm_restart = do_msm_restart;
-
-	ret = msm_get_dt_restart_reason();
-	if (ret)
-		pr_err("Error in getting restart reason\n");
 
 	if (scm_is_call_available(SCM_SVC_PWR, SCM_IO_DISABLE_PMIC_ARBITER) > 0)
 		scm_pmic_arbiter_disable_supported = true;

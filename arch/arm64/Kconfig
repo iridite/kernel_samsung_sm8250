@@ -113,8 +113,10 @@ config ARM64
 	select HAVE_ARCH_BITREVERSE
 	select HAVE_ARCH_HUGE_VMAP
 	select HAVE_ARCH_JUMP_LABEL
+	select HAVE_ARCH_JUMP_LABEL_RELATIVE
 	select HAVE_ARCH_KASAN if !(ARM64_16K_PAGES && ARM64_VA_BITS_48)
 	select HAVE_ARCH_KASAN_SW_TAGS if HAVE_ARCH_KASAN
+	select HAVE_ARCH_KFENCE
 	select HAVE_ARCH_KGDB
 	select HAVE_ARCH_MMAP_RND_BITS
 	select HAVE_ARCH_MMAP_RND_COMPAT_BITS if COMPAT
@@ -309,6 +311,7 @@ config ARCH_PROC_KCORE_TEXT
 config BROKEN_GAS_INST
 	def_bool !$(as-instr,1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n)
 
+source "arch/arm64/Kconfig.projects"
 source "arch/arm64/Kconfig.platforms"
 
 menu "Bus support"
@@ -1369,15 +1372,6 @@ config ARM64_VHE
 	  Selecting this option allows the VHE feature to be detected
 	  at runtime, and does not affect processors that do not
 	  implement this feature.
-
-config ARM64_FLUSH_CONSOLE_ON_RESTART
-	bool "Force flush the console on restart"
-	help
-	  If the console is locked while the system is rebooted, the messages
-	  in the temporary logbuffer would not have propogated to all the
-	  console drivers. This option forces the console lock to be
-	  released if it failed to be acquired, which will cause all the
-	  pending messages to be flushed.
 
 endmenu
 

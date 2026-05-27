@@ -53,7 +53,8 @@ do {									     \
 	if (ch->glink) {						     \
 		ipc_log_string(ch->glink->ilc, "%s[%d:%d] %s: "x, ch->name,  \
 			       ch->lcid, ch->rcid, __func__, ##__VA_ARGS__); \
-		dev_err(ch->glink->dev, "[%s]: "x, __func__, ##__VA_ARGS__); \
+		dev_err_ratelimited(ch->glink->dev, "[%s]: "x, __func__,     \
+							##__VA_ARGS__);      \
 	}								     \
 } while (0)
 
@@ -1099,7 +1100,7 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 					channel->ept.priv,
 					RPMSG_ADDR_ANY);
 
-			if (ret < 0) {
+			if (ret < 0 && ret != -ENODEV) {
 				CH_ERR(channel,
 					"callback error ret = %d\n", ret);
 				ret = 0;

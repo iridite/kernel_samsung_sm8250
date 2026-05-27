@@ -57,9 +57,14 @@ struct msm_pcie_register_event {
 	u32 options;
 };
 
-void msm_msi_config_access(struct irq_domain *domain, bool allow);
-void msm_msi_config(struct irq_domain *domain);
+#ifdef CONFIG_PCI_MSM_MSI
 int msm_msi_init(struct device *dev);
+#else
+static inline int msm_msi_init(struct device *dev)
+{
+	return -EINVAL;
+}
+#endif
 
 #ifdef CONFIG_PCI_MSM
 
@@ -310,5 +315,36 @@ static inline int msm_pcie_reg_dump(struct pci_dev *pci_dev, u8 *buff, u32 len)
 	return -ENODEV;
 }
 #endif /* CONFIG_PCI_MSM */
+
+#ifdef CONFIG_SEC_PCIE_L1SS
+enum l1ss_ctrl_ids {
+        L1SS_SYSFS,
+        L1SS_MST,
+        L1SS_AUDIO,
+        L1SS_MAX
+};
+
+void sec_pcie_set_use_ep_loaded(struct pci_dev *dev);
+void sec_pcie_set_ep_driver_loaded(struct pci_dev *dev, bool is_loaded);
+
+
+int sec_pcie_l1ss_enable(int ctrl_id);
+int sec_pcie_l1ss_disable(int ctrl_id);
+#else
+
+#define sec_pcie_set_use_ep_loaded(dev) do { } while(0)
+#define sec_pcie_set_ep_driver_loaded(dev, is_loaded) do { } while(0)
+
+inline int sec_pcie_l1ss_enable(int ctrl_id)
+{
+        return -ENODEV;
+}
+
+inline int sec_pcie_l1ss_disable(int ctrl_id)
+{
+        return -ENODEV;
+}
+#endif
+
 
 #endif /* __MSM_PCIE_H */

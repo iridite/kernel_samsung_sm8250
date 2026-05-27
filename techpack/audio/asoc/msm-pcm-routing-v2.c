@@ -90,8 +90,6 @@ static int num_app_cfg_types;
 static int msm_ec_ref_port_id;
 static int afe_loopback_tx_port_index;
 static int afe_loopback_tx_port_id = -1;
-static uint32_t clipper_1_enable = 0;
-static int bex_switch_enable;
 
 #define WEIGHT_0_DB 0x4000
 /* all the FEs which can support channel mixer */
@@ -294,7 +292,7 @@ static void msm_pcm_routng_cfg_matrix_map_pp(struct route_payload payload,
 	int itr = 0, rc = 0;
 
 	if ((path_type == ADM_PATH_PLAYBACK) &&
-	    ((perf_mode == LEGACY_PCM_MODE) || (perf_mode == LOW_LATENCY_PCM_MODE)) &&
+	    (perf_mode == LEGACY_PCM_MODE) &&
 	    is_custom_stereo_on) {
 		for (itr = 0; itr < payload.num_copps; itr++) {
 			if ((payload.port_id[itr] != SLIMBUS_0_RX) &&
@@ -867,11 +865,6 @@ static struct msm_pcm_stream_app_type_cfg
 	fe_dai_app_type_cfg[MSM_FRONTEND_DAI_MAX][2][MSM_BACKEND_DAI_MAX];
 
 static int last_be_id_configured[MSM_FRONTEND_DAI_MAX][MAX_SESSION_TYPES];
-
-static struct msm_media_vibration_params vib_param =
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-
-static int delay_enable;
 
 /* The caller of this should acquire routing lock */
 void msm_pcm_routing_get_bedai_info(int be_idx,
@@ -1858,7 +1851,6 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 	uint16_t bits_per_sample = 16, be_bit_width;
 	uint32_t passthr_mode = LEGACY_PCM;
 	int ret = 0;
-	bool is_copp_24bit = false;
 
 	if (fedai_id > MSM_FRONTEND_DAI_MM_MAX_ID) {
 		/* bad ID assigned in machine driver */
@@ -1904,8 +1896,6 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 
 			bits_per_sample = msm_routing_get_bit_width(
 						msm_bedais[i].format);
-			if (bits_per_sample == 24)
-				is_copp_24bit = true;
 
 			app_type =
 			fe_dai_app_type_cfg[fedai_id][session_type][i].app_type;
@@ -1919,11 +1909,6 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 					app_type_cfg[app_type_idx].bit_width;
 			} else
 				sample_rate = msm_bedais[i].sample_rate;
-
-			if (path_type == 2) {
-				if (is_copp_24bit == true)
-					bits_per_sample = 24;
-			}
 
 			acdb_dev_id =
 			fe_dai_app_type_cfg[fedai_id][session_type][i]
@@ -1951,10 +1936,6 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 				mutex_unlock(&routing_lock);
 				return -EINVAL;
 			}
-			/* Mute before volume is passed from HAL when voip setup */
-			if (app_type == VOIP_AUDIO_APP_TYPE)
-				ret = adm_set_volume(port_id, copp_idx, 0);
-
 			pr_debug("%s: setting idx bit of fe:%d, type: %d, be:%d\n",
 				 __func__, fedai_id, session_type, i);
 			set_bit(copp_idx,
@@ -2110,7 +2091,6 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 	struct msm_pcm_routing_fdai_data *fdai;
 	uint32_t passthr_mode;
 	bool is_lsm;
-	bool is_copp_24bit = false;
 
 	pr_debug("%s: reg %x val %x set %x\n", __func__, reg, val, set);
 
@@ -2190,8 +2170,6 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 
 			bits_per_sample = msm_routing_get_bit_width(
 						msm_bedais[reg].format);
-			if (bits_per_sample == 24)
-				is_copp_24bit = true;
 
 			app_type =
 			fe_dai_app_type_cfg[val][session_type][reg].app_type;
@@ -2213,10 +2191,6 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 					app_type_cfg[app_type_idx].bit_width;
 			} else
 				sample_rate = msm_bedais[reg].sample_rate;
-			if (path_type == 2) {
-				if (is_copp_24bit == true)
-					bits_per_sample = 24;
-			}
 
 			topology = msm_routing_get_adm_topology(val,
 								session_type,
@@ -3305,6 +3279,9 @@ static const char *const adm_override_chs_text[] = {"Zero", "One", "Two"};
 static SOC_ENUM_SINGLE_EXT_DECL(adm_override_chs,
 				adm_override_chs_text);
 
+static SOC_ENUM_SINGLE_EXT_DECL(mi2s_rx_adm_override_chs,
+				adm_override_chs_text);
+
 static int msm_routing_adm_get_backend_idx(struct snd_kcontrol *kcontrol)
 {
 	int backend_id;
@@ -3313,6 +3290,8 @@ static int msm_routing_adm_get_backend_idx(struct snd_kcontrol *kcontrol)
 		backend_id = MSM_BACKEND_DAI_SLIMBUS_7_RX;
 	} else if (strnstr(kcontrol->id.name, "SLIM9_TX", sizeof("SLIM9_TX"))) {
 		backend_id = MSM_BACKEND_DAI_SLIMBUS_9_TX;
+	} else if (strnstr(kcontrol->id.name, "QUAT_MI2S_RX", sizeof("QUAT_MI2S_RX"))) {
+		backend_id = MSM_BACKEND_DAI_QUATERNARY_MI2S_RX;
 	} else {
 		pr_err("%s: unsupported backend id: %s",
 			__func__, kcontrol->id.name);
@@ -3364,6 +3343,9 @@ static const struct snd_kcontrol_new adm_channel_config_controls[] = {
 			msm_routing_adm_channel_config_get,
 			msm_routing_adm_channel_config_put),
 	SOC_ENUM_EXT("SLIM9_TX ADM Channels", adm_override_chs,
+			msm_routing_adm_channel_config_get,
+			msm_routing_adm_channel_config_put),
+	SOC_ENUM_EXT("QUAT_MI2S_RX ADM Channels", mi2s_rx_adm_override_chs,
 			msm_routing_adm_channel_config_get,
 			msm_routing_adm_channel_config_put),
 };
@@ -3520,7 +3502,6 @@ static int msm_pcm_put_out_chs(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	u16 fe_id = 0, out_ch = 0;
-
 	fe_id = ((struct soc_multi_mixer_control *)
 			kcontrol->private_value)->shift;
 	out_ch = ucontrol->value.integer.value[0];
@@ -5598,7 +5579,7 @@ static int get_ec_ref_port_id(int value, int *index)
 		break;
 	case 42:
 		*index = 42;
-		port_id = AFE_PORT_ID_PRIMARY_TDM_TX;
+		port_id = SLIMBUS_7_TX;
 		break;
 	default:
 		*index = 0; /* NONE */
@@ -5658,7 +5639,7 @@ static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"SLIM_7_RX", "RX_CDC_DMA_RX_0", "RX_CDC_DMA_RX_1", "RX_CDC_DMA_RX_2",
 	"RX_CDC_DMA_RX_3", "TX_CDC_DMA_TX_0", "TERT_TDM_RX_2", "SEC_TDM_TX_0",
 	"DISPLAY_PORT1", "SEN_MI2S_RX", "SENARY_MI2S_TX", "QUIN_TDM_TX_0",
-	"PRI_TDM_RX_0", "PRI_TDM_TX_0",
+	"PRI_TDM_RX_0", "SLIM_7_TX",
 };
 
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
@@ -5865,9 +5846,6 @@ static int msm_routing_ext_ec_put(struct snd_kcontrol *kcontrol,
 		break;
 	case EXT_EC_REF_SEC_TDM_TX:
 		ext_ec_ref_port_id = AFE_PORT_ID_SECONDARY_TDM_TX;
-		break;
-	case EXT_EC_REF_SENARY_MI2S_TX:
-		ext_ec_ref_port_id = AFE_PORT_ID_SENARY_MI2S_TX;
 		break;
 	case EXT_EC_REF_NONE:
 	default:
@@ -7741,6 +7719,10 @@ static const struct snd_kcontrol_new quat_mi2s_rx_port_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_BACKEND_DAI_SLIMBUS_8_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
+	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_3", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
+	MSM_BACKEND_DAI_TX_CDC_DMA_TX_3, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
 };
 
 static const struct snd_kcontrol_new quin_mi2s_rx_port_mixer_controls[] = {
@@ -8287,6 +8269,10 @@ static const struct snd_kcontrol_new incall_music_delivery_mixer_controls[] = {
 	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
+	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new incall_music2_delivery_mixer_controls[] = {
@@ -8305,6 +8291,10 @@ static const struct snd_kcontrol_new incall_music2_delivery_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_VOICE2_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_VOICE2_PLAYBACK_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -17932,10 +17922,6 @@ static const struct snd_kcontrol_new mmul8_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_7_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SLIM_8_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_8_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("USB_AUDIO_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_USB_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
@@ -18403,6 +18389,10 @@ static const struct snd_kcontrol_new mmul10_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("PRI_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_PRI_MI2S_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("INTERNAL_FM_TX", SND_SOC_NOPM,
@@ -21375,6 +21365,10 @@ static const struct snd_kcontrol_new tx_voip_mixer_controls[] = {
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("QUAT_MI2S_TX_Voip", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
+	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
+	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT3_MI2S_TX_Voip", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INT3_MI2S_TX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
@@ -22307,6 +22301,17 @@ static const struct snd_kcontrol_new usb_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("USB_AUDIO_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_USB_RX,
 	MSM_BACKEND_DAI_USB_TX, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_3", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_USB_RX,
+	MSM_BACKEND_DAI_TX_CDC_DMA_TX_3, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+};
+
+static const struct snd_kcontrol_new slimbus_7_rx_port_mixer_controls[] = {
+	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_3", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_7_RX,
+	MSM_BACKEND_DAI_TX_CDC_DMA_TX_3, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
 };
 
@@ -23645,6 +23650,129 @@ done:
 	return ret;
 }
 
+#ifdef CONFIG_SEC_SND_ADAPTATION
+static bool q6audio_determine_curr_copp_idx(int stream, enum sb_type func_type)
+{
+	int ret = false;
+
+	pr_info("%s: stream(%d) sb_type(%d)\n",
+		__func__,
+		stream, func_type);
+
+	switch (func_type) {
+	case SB_DISABLE:
+		if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA4) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA6) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA11))
+			ret = true;
+		break;
+	case SB_ENABLE:
+		if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA4) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA6))
+			ret = true;
+		break;
+	case SB_RINGTONE:
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA11)
+			ret = true;
+		break;
+	case SB_REARLEFT:
+	case SB_REARRIGHT:
+	case SB_FRONTLEFT:
+	case SB_FRONTRIGHT:
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA1)
+			ret = true;
+		break;
+	case SB_ROTATION:
+		if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA1) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA4) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA6))
+			ret = true;
+		break;
+	case SB_ROTATION_LL:
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA5)
+			ret = true;
+		break;
+	case SB_ROTATION_RINGTONE:
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA11)
+			ret = true;
+		break;
+	case SB_FLATMOTION:
+		if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA1) ||
+		    (stream == MSM_FRONTEND_DAI_MULTIMEDIA11))
+			ret = true;
+		break;
+	case SB_VOLUME:
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA1)
+			ret = true;
+		break;
+	default:
+		pr_info("%s: unknown function type\n", __func__);
+		break;
+	}
+
+	return ret;
+}
+
+int q6audio_get_copp_idx_from_port_id(int port_id, enum sb_type func_type,
+					int *copp_idx)
+{
+	int i, idx, be_idx;
+	int ret = 0;
+	unsigned long copp;
+
+	pr_info("%s: port_id=0x%x, func_type=%d\n",
+		__func__, port_id, func_type);
+
+	ret = q6audio_validate_port(port_id);
+	if (ret < 0) {
+		pr_err("%s: port validation failed id 0x%x ret %d\n",
+			__func__, port_id, ret);
+
+		ret = -EINVAL;
+		goto done;
+	}
+
+	for (be_idx = 0; be_idx < MSM_BACKEND_DAI_MAX; be_idx++) {
+		if (msm_bedais[be_idx].port_id == port_id)
+			break;
+	}
+	if (be_idx >= MSM_BACKEND_DAI_MAX) {
+		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
+
+		ret = -EINVAL;
+		goto done;
+	}
+
+	for_each_set_bit(i, &msm_bedais[be_idx].fe_sessions[0],
+			 MSM_FRONTEND_DAI_MM_SIZE) {
+		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
+			copp = session_copp_map[i]
+				[SESSION_TYPE_RX][be_idx];
+			if (test_bit(idx, &copp)) {
+				if (q6audio_determine_curr_copp_idx(i, func_type))
+					break;
+			}
+		}
+		if (idx >= MAX_COPPS_PER_PORT)
+			continue;
+		else
+			break;
+	}
+	if (i >= MSM_FRONTEND_DAI_MM_SIZE) {
+		pr_debug("%s: Invalid FE, exiting\n", __func__);
+
+		ret = -EINVAL;
+		goto done;
+	}
+	*copp_idx = idx;
+	pr_info("%s: copp_idx=%d\n", __func__, *copp_idx);
+
+done:
+	return ret;
+}
+EXPORT_SYMBOL(q6audio_get_copp_idx_from_port_id);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
+
 static int msm_audio_sound_focus_derive_port_id(struct snd_kcontrol *kcontrol,
 					    const char *prefix, int *port_id)
 {
@@ -24302,1125 +24430,6 @@ static const struct snd_kcontrol_new int4_mi2s_rx_vi_fb_stereo_ch_mux =
 	int4_mi2s_rx_vi_fb_stereo_ch_mux_enum, spkr_prot_get_vi_rch_port,
 	spkr_prot_put_vi_rch_port);
 
-static int msm_adm_clipper_1_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = clipper_1_enable;
-	pr_debug("%s: state of clipper 1: %ld\n" , __func__,
-				ucontrol->value.integer.value[0]);
-	return 0;
-}
-
-static int msm_adm_clipper_1_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	unsigned long copp;
-	int ret = 0;
-	int ret2 = 0;
-	int port_id = 0;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	clipper_1_enable = (uint32_t)ucontrol->value.integer.value[0];
-	app_type = ucontrol->value.integer.value[1];
-
-	if ((clipper_1_enable < 0) || (clipper_1_enable > 1)) {
-		pr_err("%s: Invalid values. clipper module status:%d", __func__,
-			clipper_1_enable);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_rampup_clipper(port_id, i,
-						clipper_1_enable, AUDPROC_MODULE_ID_RAMP_UP_CLIPPER_1);
-				if (ret2 < 0) {
-					pr_err("%s Failed to change state of clipper module %d\n",
-						__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_clipper_control_1[] = {
-	SOC_SINGLE_MULTI_EXT("Fade In", SND_SOC_NOPM, 0,
-	1, 0, 2, msm_adm_clipper_1_get,
-	msm_adm_clipper_1_put),
-};
-
-static uint32_t bex_modules_map[NUM_BEX_MODULES][2] = {
-	{AUDPROC_MODULE_ID_INV_VOL_CTRL, AUDPROC_PARAM_ID_INV_VOL_ENABLE},
-	{AUDPROC_MODULE_ID_MCHAN_IIR_1, AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE},
-	{AUDPROC_MODULE_ID_MCHAN_IIR_2, AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE},
-	{AUDPROC_MODULE_ID_MCHAN_IIR_3, AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE},
-	{AUDPROC_MODULE_ID_VOLUME_LIMITER, AUDPROC_PARAM_ID_VOLUME_ENABLE},
-	{AUDPROC_MODULE_ID_ABS, AUDPROC_PARAM_ID_ABS_ENABLE},
-	{AUDPROC_MODULE_ID_MCHAN_IIR_4, AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE},
-	{AUDPROC_MODULE_ID_DUAL_MONO, AUDPROC_PARAM_ID_DUAL_MONO_ENABLE},
-	{AUDPROC_MODULE_ID_VOLUME_LIMITER_1, AUDPROC_PARAM_ID_VOLUME_ENABLE},
-	{AUDPROC_MODULE_ID_LOG10, AUDPROC_PARAM_ID_LOG10_ENABLE},
-	{AUDPROC_MODULE_ID_ADD1, AUDPROC_PARAM_ID_ADD1_ENABLE},
-	{AUDPROC_MODULE_ID_MCHAN_IIR_5, AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE},
-	{AUDPROC_MODULE_ID_ADDX, AUDPROC_PARAM_ID_ADDX_ENABLE},
-	{AUDPROC_MODULE_ID_NEGATIVE_CUT, AUDPROC_PARAM_ID_NEGATIVE_CUT_ENABLE},
-	{AUDPROC_MODULE_ID_VOLUME_LIMITER_4, AUDPROC_PARAM_ID_VOLUME_ENABLE},
-	{AUDPROC_MODULE_ID_DUAL_MONO1, AUDPROC_PARAM_ID_DUAL_MONO_ENABLE},
-	{AUDPROC_MODULE_ID_VOLUME_LIMITER_5, AUDPROC_PARAM_ID_VOLUME_ENABLE}
-};
-
-static int msm_adm_input_volume_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.input_volume_l;
-	ucontrol->value.integer.value[1] = vib_param.input_volume_r;
-
-	pr_debug("%s: Input Volume = {L:%d, R:%d}" , __func__,
-			vib_param.input_volume_l,
-			vib_param.input_volume_r);
-
-	return 0;
-}
-
-static int msm_adm_input_volume_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.input_volume_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.input_volume_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.input_volume_l > 0x100000) ||
-		(vib_param.input_volume_r > 0x100000)) {
-		pr_err("%s: Invalid values. input_volume={%x, %x}", __func__,
-			vib_param.input_volume_l,
-			vib_param.input_volume_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_input_volume(port_id, i,
-					vib_param.input_volume_l,
-					vib_param.input_volume_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set Input Volume volume %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_input_volume_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX Input Volume", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_input_volume_get,
-			     msm_adm_input_volume_put),
-};
-
-static int msm_adm_beat_bass_input_volume_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.beat_input_volume_l;
-	ucontrol->value.integer.value[1] = vib_param.bass_input_volume_r;
-
-	pr_debug("%s: L_BEAT/R_BASS Input Volume = {L:%d, R:%d}" , __func__,
-			vib_param.beat_input_volume_l,
-			vib_param.bass_input_volume_r);
-
-	return 0;
-}
-
-static int msm_adm_beat_bass_input_volume_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.beat_input_volume_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.bass_input_volume_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.beat_input_volume_l > 0x100000) ||
-		(vib_param.bass_input_volume_r > 0x100000)) {
-		pr_err("%s: Invalid values. input_volume={%x, %x}", __func__,
-			vib_param.beat_input_volume_l,
-			vib_param.bass_input_volume_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_beat_bass_input_volume(port_id, i,
-					vib_param.beat_input_volume_l,
-					vib_param.bass_input_volume_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set L_BEAT/R_BASS Input volume %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_beat_bass_input_volume_control[] = {
-	SOC_SINGLE_MULTI_EXT("L_BEAT/R_BASS Input Volume", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_beat_bass_input_volume_get,
-			     msm_adm_beat_bass_input_volume_put),
-};
-
-static int msm_adm_beat_bass_output_volume_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.beat_output_volume_l;
-	ucontrol->value.integer.value[1] = vib_param.bass_output_volume_r;
-
-	pr_debug("%s: L_BEAT/R_BASS Output Volume = {L:%d, R:%d}" , __func__,
-			vib_param.beat_output_volume_l,
-			vib_param.bass_output_volume_r);
-
-	return 0;
-}
-
-static int msm_adm_beat_bass_output_volume_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.beat_output_volume_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.bass_output_volume_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.beat_output_volume_l > 0x100000) ||
-		(vib_param.bass_output_volume_r > 0x100000)) {
-		pr_err("%s: Invalid values. output_volume={%x, %x}", __func__,
-			vib_param.beat_output_volume_l,
-			vib_param.bass_output_volume_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_beat_bass_output_volume(port_id, i,
-					vib_param.beat_output_volume_l,
-					vib_param.bass_output_volume_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set L_BEAT/R_BASS Output volume %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_beat_bass_output_volume_control[] = {
-	SOC_SINGLE_MULTI_EXT("L_BEAT/R_BASS Output Volume", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_beat_bass_output_volume_get,
-			     msm_adm_beat_bass_output_volume_put),
-};
-
-
-
-static int msm_adm_level_volume_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.level_volume_l;
-	ucontrol->value.integer.value[1] = vib_param.level_volume_r;
-
-	pr_debug("%s: level volume = {L:%d, R:%d}" , __func__,
-			vib_param.level_volume_l,
-			vib_param.level_volume_r);
-
-	return 0;
-}
-
-static int msm_adm_level_volume_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.level_volume_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.level_volume_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.level_volume_l > 0x100000) ||
-		(vib_param.level_volume_r > 0x100000)) {
-		pr_err("%s: Invalid values. level_volume={%x, %x}", __func__,
-			vib_param.level_volume_l,
-			vib_param.level_volume_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_level_volume(port_id, i,
-					vib_param.level_volume_l,
-					vib_param.level_volume_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set level volume %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_level_volume_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX Level Volume", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_level_volume_get,
-			     msm_adm_level_volume_put),
-};
-
-static int msm_adm_hpf_a_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.hpf_a_l;
-	ucontrol->value.integer.value[1] = vib_param.hpf_a_r;
-
-	pr_debug("%s: HPF A enable = {L:%d, R:%d}" , __func__,
-			vib_param.hpf_a_l,
-			vib_param.hpf_a_r);
-
-	return 0;
-}
-
-static int msm_adm_hpf_a_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.hpf_a_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.hpf_a_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.hpf_a_l < 0) || (vib_param.hpf_a_l > 1) ||
-		(vib_param.hpf_a_r < 0) || (vib_param.hpf_a_r > 1)) {
-		pr_err("%s: Invalid values. hpf_a={%x, %x}", __func__,
-			vib_param.hpf_a_l,
-			vib_param.hpf_a_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_hpf_a(port_id, i,
-					vib_param.hpf_a_l,
-					vib_param.hpf_a_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set HPF A enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_hpf_a_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX HPF A", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_hpf_a_get,
-			     msm_adm_hpf_a_put),
-};
-
-static int msm_adm_hpf_b_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.hpf_b_l;
-	ucontrol->value.integer.value[1] = vib_param.hpf_b_r;
-
-	pr_debug("%s: HPF B enable = {L:%d, R:%d}" , __func__,
-			vib_param.hpf_b_l,
-			vib_param.hpf_b_r);
-
-	return 0;
-}
-
-static int msm_adm_hpf_b_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.hpf_b_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.hpf_b_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.hpf_b_l < 0) || (vib_param.hpf_b_l > 1) ||
-		(vib_param.hpf_b_r < 0) || (vib_param.hpf_b_r > 1)) {
-		pr_err("%s: Invalid values. hpf_b={%x, %x}", __func__,
-			vib_param.hpf_b_l,
-			vib_param.hpf_b_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_hpf_b(port_id, i,
-					vib_param.hpf_b_l,
-					vib_param.hpf_b_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set HPF B enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_hpf_b_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX HPF B", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_hpf_b_get,
-			     msm_adm_hpf_b_put),
-};
-
-static int msm_adm_log10_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.log10_l;
-	ucontrol->value.integer.value[1] = vib_param.log10_r;
-
-	pr_debug("%s: Log10 enable = {L:%d, R:%d}" , __func__,
-			vib_param.log10_l,
-			vib_param.log10_r);
-
-	return 0;
-}
-
-static int msm_adm_log10_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.log10_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.log10_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.log10_l < 0) || (vib_param.log10_l > 1) ||
-		(vib_param.log10_r < 0) || (vib_param.log10_r > 1)) {
-		pr_err("%s: Invalid values. log10={%x, %x}", __func__,
-			vib_param.log10_l,
-			vib_param.log10_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_log10(port_id, i,
-					vib_param.log10_l,
-					vib_param.log10_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set Log10 enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_log10_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX Log10", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_log10_get,
-			     msm_adm_log10_put),
-};
-
-static int msm_adm_add1_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.add1_l;
-	ucontrol->value.integer.value[1] = vib_param.add1_r;
-
-	pr_debug("%s: Add1 enable = {L:%d, R:%d}" , __func__,
-			vib_param.add1_l,
-			vib_param.add1_r);
-
-	return 0;
-}
-
-static int msm_adm_add1_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.add1_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.add1_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.add1_l < 0) || (vib_param.add1_l > 1) ||
-		(vib_param.add1_r < 0) || (vib_param.add1_r > 1)) {
-		pr_err("%s: Invalid values. add1={%x, %x}", __func__,
-			vib_param.add1_l,
-			vib_param.add1_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_add1(port_id, i,
-					vib_param.add1_l,
-					vib_param.add1_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set Add1 enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_add1_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX Add1", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_add1_get,
-			     msm_adm_add1_put),
-};
-
-static int msm_adm_addx_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.addx_l;
-	ucontrol->value.integer.value[1] = vib_param.addx_r;
-
-	pr_debug("%s: AddX enable = {L:%d, R:%d}" , __func__,
-			vib_param.addx_l,
-			vib_param.addx_r);
-
-	return 0;
-}
-
-static int msm_adm_addx_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.addx_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.addx_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.addx_l < 0) || (vib_param.addx_l > 1) ||
-		(vib_param.addx_r < 0) || (vib_param.addx_r > 1)) {
-		pr_err("%s: Invalid values. addx={%x, %x}", __func__,
-			vib_param.addx_l,
-			vib_param.addx_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_addx(port_id, i,
-					vib_param.addx_l,
-					vib_param.addx_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set AddX enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_addx_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX AddX", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_addx_get,
-			     msm_adm_addx_put),
-};
-
-static int msm_adm_negative_cut_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.negative_cut_l;
-	ucontrol->value.integer.value[1] = vib_param.negative_cut_r;
-
-	pr_debug("%s: Negative Cut enable = {L:%d, R:%d}" , __func__,
-			vib_param.negative_cut_l,
-			vib_param.negative_cut_r);
-
-	return 0;
-}
-
-static int msm_adm_negative_cut_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.negative_cut_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.negative_cut_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.negative_cut_l < 0) || (vib_param.negative_cut_l > 1) ||
-		(vib_param.negative_cut_r < 0) || (vib_param.negative_cut_r > 1)) {
-		pr_err("%s: Invalid values. negative_cut={%x, %x}", __func__,
-			vib_param.negative_cut_l,
-			vib_param.negative_cut_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_negative_cut(port_id, i,
-					vib_param.negative_cut_l,
-					vib_param.negative_cut_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set Negative Cut enable %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_negative_cut_control[] = {
-	SOC_SINGLE_MULTI_EXT("BEX Negative Cut", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_negative_cut_get,
-			     msm_adm_negative_cut_put),
-};
-
-static int msm_adm_inverse_volume_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = vib_param.audio_volume_l;
-	ucontrol->value.integer.value[1] = vib_param.audio_volume_r;
-
-	pr_debug("%s: audio volume = {L:%d, R:%d}" , __func__,
-			vib_param.audio_volume_l, vib_param.audio_volume_r);
-
-	return 0;
-}
-
-static int msm_adm_inverse_volume_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	vib_param.audio_volume_l = (uint32_t)ucontrol->value.integer.value[0];
-	vib_param.audio_volume_r = (uint32_t)ucontrol->value.integer.value[1];
-	app_type = ucontrol->value.integer.value[2];
-
-	if ((vib_param.audio_volume_l > 0x2000) ||
-		(vib_param.audio_volume_r > 0x2000)) {
-		pr_err("%s: Invalid values. audio_volume={%x, %x}", __func__,
-			vib_param.audio_volume_l,
-			vib_param.audio_volume_r);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_inverse_volume(port_id, i,
-					vib_param.audio_volume_l,
-					vib_param.audio_volume_r);
-				if (ret2 < 0) {
-					pr_err("%s Failed to set inverse volume %d\n",
-					__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_inverse_volume_control[] = {
-	SOC_SINGLE_MULTI_EXT("Inverse Audio Volume", SND_SOC_NOPM, 0,
-			     0xFFFFFFFF, 0, 3, msm_adm_inverse_volume_get,
-			     msm_adm_inverse_volume_put),
-};
-
-static int msm_adm_get_bex_module_state(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = bex_switch_enable;
-	pr_debug("%s: BEX Switch enable: %ld\n" , __func__,
-				ucontrol->value.integer.value[0]);
-	return 0;
-}
-
-static int msm_adm_put_bex_module_state(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, j, app_type, be_id, fe_id;
-	int port_id = 0;
-	int ret = 0;
-	int ret2 = 0;
-	unsigned long copp;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	bex_switch_enable = (uint32_t)ucontrol->value.integer.value[0];
-	app_type = ucontrol->value.integer.value[1];
-
-        if ((bex_switch_enable < 0) || (bex_switch_enable > 1)) {
-		pr_err("%s: Invalid values. bex_switch_enable: %d\n", __func__, bex_switch_enable);
-		return -EINVAL;
-        }
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-				be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
-				if (!test_bit(j, &copp))
-					continue;
-
-				for (i = 0; i < NUM_BEX_MODULES; i++) {
-					ret2 = adm_set_all_bex_modules(port_id, j,
-						bex_modules_map[i][0], bex_modules_map[i][1], bex_switch_enable);
-
-					if (ret2 < 0) {
-						pr_err("%s Failed to change state of module:%x ret = %d\n",
-							__func__, bex_modules_map[i][0], ret);
-					}
-
-					ret |= ret2;
-				}
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_all_bex_modules_control[] = {
-	SOC_SINGLE_MULTI_EXT("All BEX Modules", SND_SOC_NOPM, 0,
-	1, 0, 2, msm_adm_get_bex_module_state,
-	msm_adm_put_bex_module_state),
-};
-
-static int msm_adm_get_delay_module_state(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = delay_enable;
-	pr_debug("%s: delay module state: %ld\n" , __func__,
-			ucontrol->value.integer.value[0]);
-
-	return 0;
-}
-
-static int msm_adm_set_delay_module_state(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int i, app_type, be_id, fe_id;
-	unsigned long copp;
-	int ret = 0;
-	int ret2 = 0;
-	int port_id = 0;
-	struct msm_pcm_routing_bdai_data *bedai;
-
-	delay_enable = (uint32_t)ucontrol->value.integer.value[0];
-	app_type = ucontrol->value.integer.value[1];
-
-	if ((delay_enable < 0) || (delay_enable > 1)) {
-		pr_err("%s: Invalid values. delay module status:%d", __func__,
-			delay_enable);
-		return -EINVAL;
-	}
-
-	mutex_lock(&routing_lock);
-	for (be_id = 0; be_id < MSM_BACKEND_DAI_MAX; be_id++) {
-		if (!msm_bedais[be_id].active)
-			continue;
-
-		bedai = &msm_bedais[be_id];
-		pr_debug("%s: be_id=%d, bedai->fe_sessions=%#x\n", __func__,
-			be_id, (int)bedai->fe_sessions[0]);
-
-		port_id = msm_bedais[be_id].port_id;
-
-		for (fe_id = 0; fe_id < MSM_FRONTEND_DAI_MAX; fe_id++) {
-			if (!test_bit(fe_id, &bedai->fe_sessions[0]))
-				continue;
-
-			if (app_type != fe_dai_app_type_cfg[fe_id][SESSION_TYPE_RX][be_id].app_type)
-				continue;
-
-			copp = session_copp_map[fe_id][SESSION_TYPE_RX][be_id];
-			for (i = 0; i < MAX_COPPS_PER_PORT; i++) {
-				if (!test_bit(i, &copp))
-					continue;
-
-				ret2 = adm_set_delay_module_state(port_id, i, delay_enable);
-				if (ret2 < 0) {
-					pr_err("%s Failed to enable/disable delay module %d\n",
-				__func__, ret2);
-				}
-
-				ret |= ret2;
-			}
-		}
-	}
-	mutex_unlock(&routing_lock);
-	return ret ? -EINVAL : 0;
-}
-
-static struct snd_kcontrol_new msm_adm_delay_module_control[] = {
-	SOC_SINGLE_MULTI_EXT("Delay Module", SND_SOC_NOPM, 0,
-	1, 0, 2, msm_adm_get_delay_module_state,
-	msm_adm_set_delay_module_state),
-};
-
 static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	/* Frontend AIF */
 	/* Widget name equals to Front-End DAI name<Need confirmation>,
@@ -25969,6 +24978,9 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_MIXER("DISPLAY_PORT_RX1_Voice Mixer",
 	SND_SOC_NOPM, 0, 0, display_port_rx1_voice_mixer_controls,
 	ARRAY_SIZE(display_port_rx1_voice_mixer_controls)),
+	SND_SOC_DAPM_MIXER("SLIMBUS_7_RX Port Mixer",
+	SND_SOC_NOPM, 0, 0, slimbus_7_rx_port_mixer_controls,
+	ARRAY_SIZE(slimbus_7_rx_port_mixer_controls)),
 	/* lsm mixer definitions */
 	SND_SOC_DAPM_MIXER("LSM1 Mixer", SND_SOC_NOPM, 0, 0,
 	lsm1_mixer_controls, ARRAY_SIZE(lsm1_mixer_controls)),
@@ -27487,11 +26499,13 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"Incall_Music Audio Mixer", "MultiMedia4", "MM_DL4"},
 	{"Incall_Music Audio Mixer", "MultiMedia5", "MM_DL5"},
 	{"Incall_Music Audio Mixer", "MultiMedia9", "MM_DL9"},
+	{"Incall_Music Audio Mixer", "MultiMedia11", "MM_DL11"},
 	{"VOICE_PLAYBACK_TX", NULL, "Incall_Music Audio Mixer"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia2", "MM_DL2"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia5", "MM_DL5"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia9", "MM_DL9"},
+	{"Incall_Music_2 Audio Mixer", "MultiMedia11", "MM_DL11"},
 	{"VOICE2_PLAYBACK_TX", NULL, "Incall_Music_2 Audio Mixer"},
 	{"SLIMBUS_4_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"SLIMBUS_4_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -27590,7 +26604,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia1 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia8 Mixer", "SLIM_6_TX", "SLIMBUS_6_TX"},
 	{"MultiMedia8 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
-	{"MultiMedia8 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia8 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia4 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia4 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
@@ -27618,6 +26631,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia10 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"MultiMedia16 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia16 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
+	{"MultiMedia16 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia5 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia5 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia5 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
@@ -27916,7 +26930,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-
 	{"MultiMedia19 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
 	{"MultiMedia19 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 #endif
@@ -28218,9 +27231,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"VOICEMMODE2_UL", NULL, "VOC_EXT_EC MUX"},
 
 	{"AUDIO_REF_EC_UL1 MUX", "SLIM_1_TX", "SLIMBUS_1_TX"},
-	{"AUDIO_REF_EC_UL1 MUX", "SENARY_MI2S_TX", "SENARY_MI2S_TX"},
 	{"AUDIO_REF_EC_UL10 MUX", "SLIM_1_TX", "SLIMBUS_1_TX"},
-	{"AUDIO_REF_EC_UL10 MUX", "SENARY_MI2S_TX", "SENARY_MI2S_TX"},
+	{"AUDIO_REF_EC_UL1 MUX", "SLIM_7_TX", "SLIMBUS_7_TX"},
 
 	{"LSM1_UL_HL", NULL, "AUDIO_REF_EC_UL1 MUX"},
 	{"LSM2_UL_HL", NULL, "AUDIO_REF_EC_UL1 MUX"},
@@ -28301,6 +27313,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"Voip_Tx Mixer", "TX_CDC_DMA_TX_3_Voip", "TX_CDC_DMA_TX_3"},
 	{"Voip_Tx Mixer", "TX_CDC_DMA_TX_4_Voip", "TX_CDC_DMA_TX_4"},
 	{"Voip_Tx Mixer", "TX_CDC_DMA_TX_5_Voip", "TX_CDC_DMA_TX_5"},
+	{"Voip_Tx Mixer", "SEC_MI2S_TX_Voip", "SEC_MI2S_TX"},
+	{"Voip_Tx Mixer", "QUAT_MI2S_TX_Voip", "QUAT_MI2S_TX"},
 #endif
 	{"VOIP_UL", NULL, "Voip_Tx Mixer"},
 
@@ -28489,6 +27503,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AFE_PCM_RX Port Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"PCM_RX", NULL, "AFE_PCM_RX Port Mixer"},
 	{"USB_AUDIO_RX Port Mixer", "USB_AUDIO_TX", "USB_AUDIO_TX"},
+	{"USB_AUDIO_RX Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"USB_AUDIO_RX", NULL, "USB_AUDIO_RX Port Mixer"},
 	{"USB_DL_HL", "Switch", "USBAUDIO_DL_HL"},
 	{"USB_AUDIO_RX", NULL, "USB_DL_HL"},
@@ -31276,6 +30291,10 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"MultiMedia5 Mixer", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 	{"MultiMedia6 Mixer", "SENARY_MI2S_TX", "SENARY_MI2S_TX"},
 	{"MultiMedia5 Mixer", "SENARY_MI2S_TX", "SENARY_MI2S_TX"},
+	{"MultiMedia8 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
+	{"MultiMedia16 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
+	{"MultiMedia8 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia16 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 
 	{"MultiMedia27 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia27 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
@@ -31372,7 +30391,6 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"VOC_EXT_EC MUX", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"VOC_EXT_EC MUX", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"VOC_EXT_EC MUX", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
-	{"VOC_EXT_EC MUX", "SENARY_MI2S_TX", "SENARY_MI2S_TX"},
 	{"VOC_EXT_EC MUX", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 
 	{"AUDIO_REF_EC_UL1 MUX", "PRI_MI2S_TX", "PRI_MI2S_TX"},
@@ -31536,7 +30554,7 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX_DL_HL"},
 	{"QUIN_MI2S_RX_DL_HL", "Switch", "QUIN_MI2S_DL_HL"},
 	{"QUIN_MI2S_RX", NULL, "QUIN_MI2S_RX_DL_HL"},
-	{"SEN_MI2S_RX_DL_HL", "Switch", "CDC_DMA_DL_HL"}, // should use CDC_DMA_DL_HL replace SEN_MI2S_DL_HL
+	{"SEN_MI2S_RX_DL_HL", "Switch", "SEN_MI2S_DL_HL"},
 	{"SEN_MI2S_RX", NULL, "SEN_MI2S_RX_DL_HL"},
 	{"MI2S_UL_HL", NULL, "TERT_MI2S_TX"},
 	{"INT3_MI2S_UL_HL", NULL, "INT3_MI2S_TX"},
@@ -31648,6 +30666,7 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"QUAT_MI2S_RX Port Mixer", "AUX_PCM_UL_TX", "AUX_PCM_TX"},
 #endif
 	{"QUAT_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
+	{"QUAT_MI2S_RX Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX Port Mixer"},
 
 	{"QUIN_MI2S_RX Port Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
@@ -31669,6 +30688,8 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"SEN_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"SEN_MI2S_RX", NULL, "SEN_MI2S_RX Port Mixer"},
 
+	{"SLIMBUS_7_RX Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
+	{"SLIMBUS_7_RX", NULL, "SLIMBUS_7_RX Port Mixer"},
 	/* Backend Enablement */
 
 	{"BE_OUT", NULL, "PRI_I2S_RX"},
@@ -32753,38 +31774,6 @@ static int msm_routing_probe(struct snd_soc_component *component)
 	snd_soc_add_component_controls(component, mclk_src_controls,
 				      ARRAY_SIZE(mclk_src_controls));
 
-	snd_soc_add_component_controls(component, msm_adm_clipper_control_1,
-				ARRAY_SIZE(msm_adm_clipper_control_1));
-
-	snd_soc_add_component_controls(component, msm_adm_inverse_volume_control,
-				ARRAY_SIZE(msm_adm_inverse_volume_control));
-
-	snd_soc_add_component_controls(component, msm_adm_input_volume_control,
-				ARRAY_SIZE(msm_adm_input_volume_control));
-	snd_soc_add_component_controls(component, msm_adm_beat_bass_input_volume_control,
-				ARRAY_SIZE(msm_adm_beat_bass_input_volume_control));
-	snd_soc_add_component_controls(component, msm_adm_beat_bass_output_volume_control,
-				ARRAY_SIZE(msm_adm_beat_bass_output_volume_control));
-	snd_soc_add_component_controls(component, msm_adm_level_volume_control,
-				ARRAY_SIZE(msm_adm_level_volume_control));
-	snd_soc_add_component_controls(component, msm_adm_hpf_a_control,
-				ARRAY_SIZE(msm_adm_hpf_a_control));
-	snd_soc_add_component_controls(component, msm_adm_hpf_b_control,
-				ARRAY_SIZE(msm_adm_hpf_b_control));
-	snd_soc_add_component_controls(component, msm_adm_log10_control,
-				ARRAY_SIZE(msm_adm_log10_control));
-	snd_soc_add_component_controls(component, msm_adm_add1_control,
-				ARRAY_SIZE(msm_adm_add1_control));
-	snd_soc_add_component_controls(component, msm_adm_addx_control,
-				ARRAY_SIZE(msm_adm_addx_control));
-	snd_soc_add_component_controls(component, msm_adm_negative_cut_control,
-				ARRAY_SIZE(msm_adm_negative_cut_control));
-
-	snd_soc_add_component_controls(component, msm_adm_all_bex_modules_control,
-				ARRAY_SIZE(msm_adm_all_bex_modules_control));
-
-	snd_soc_add_component_controls(component, msm_adm_delay_module_control,
-				ARRAY_SIZE(msm_adm_delay_module_control));
 	return 0;
 }
 

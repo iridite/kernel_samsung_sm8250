@@ -74,27 +74,6 @@ config VFAT_FS
 	  To compile this as a module, choose M here: the module will be called
 	  vfat.
 
-config VFAT_FS_NO_DUALNAMES
-	bool "disable VFAT dual names support (patent workaround)"
-	depends on VFAT_FS
-	help
-	  This option disables support for dual filenames on VFAT filesystems.
-	  If this option is enabled then file creation will either put
-	  a short (8.3) name or a long name on the file, but never both.
-	  The field where a shortname would normally go is filled with
-	  invalid characters such that it cannot be considered a valid
-	  short filename.
-
-	  That means that long filenames created with this option
-	  disabled will not be accessible at all to operating systems
-	  that do not understand the FAT long filename extensions.
-
-	  Users considering disabling this option should consider the
-	  implications of any patents that may exist on dual filenames
-	  in VFAT.
-
-	  If unsure, say N
-
 config FAT_DEFAULT_CODEPAGE
 	int "Default codepage for FAT"
 	depends on MSDOS_FS || VFAT_FS
@@ -135,3 +114,27 @@ config FAT_DEFAULT_UTF8
 	  Say Y if you use UTF-8 encoding for file names, N otherwise.
 
 	  See <file:Documentation/filesystems/vfat.txt> for more information.
+
+config FAT_VIRTUAL_XATTR
+	bool "Virtual xattr support for FAT filesystem"
+	default y
+	depends on FAT_FS
+	help
+	  Modification of FAT filesystem for virtual xattr
+
+config FAT_VIRTUAL_XATTR_SELINUX_LABEL
+	string "Default string for SELinux label"
+	depends on FAT_FS && FAT_VIRTUAL_XATTR
+	default "u:object_r:sdcard_external:s0"
+	help
+	  Set this to the default string for SELinux label.
+
+config FAT_SUPPORT_STLOG
+	bool "Enable storage log"
+	default y
+	depends on FAT_FS && PROC_STLOG
+
+config FAT_UEVENT
+	bool "enable uevent"
+	depends on FAT_FS
+	default y

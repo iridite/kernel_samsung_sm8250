@@ -493,6 +493,12 @@ config QSEECOM
 	  Manager (SCM) interface. It exposes APIs for both userspace and
 	  kernel clients.
 
+config QSEECOM_DEBUG
+        bool "QTI Secure Execution Communicator driver debug"
+	default	n
+        help
+          QTI Secure Execution Communicator driver debug
+
 config VEXPRESS_SYSCFG
 	bool "Versatile Express System Configuration driver"
 	depends on VEXPRESS_CONFIG
@@ -622,6 +628,10 @@ config QTI_MAXIM_FAN_CONTROLLER
 	  Also, this driver initializes the power for the fan controller
 	  and exposes sysfs node to control different speeds of fan.
 
+config DEV_RIL_BRIDGE
+	bool "Support a bridge between device and RIL"
+	default n
+
 config KINECTICS_XR_NORDIC
 	tristate "Nordic Misc driver support in XR Reference devices"
 	help
@@ -646,7 +656,6 @@ source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/ocxl/Kconfig"
 source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
-source "drivers/misc/mm_tuner/Kconfig"
 source "drivers/misc/qrc/Kconfig"
 endmenu
 
@@ -668,9 +677,3 @@ config OKL4_LINK_SHBUF
 	      transport. This driver presents the link to Linux as a character device
 	      which can be written to or read from to access the shared memory. An ioctl
 	      on the device is used to send a virtual interrupt to the partner cell.
-
-config SONY_EXT_UIM_CTRL
-	tristate "Sony External UIM Control Driver"
-	default n
-	help
-	  A misc driver related to UIM selector/enabler

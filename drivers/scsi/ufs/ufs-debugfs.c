@@ -27,7 +27,6 @@
 enum field_width {
 	BYTE	= 1,
 	WORD	= 2,
-	DWORD	= 4,
 };
 
 struct desc_field_offset {
@@ -911,15 +910,7 @@ static int ufsdbg_dump_device_desc_show(struct seq_file *file, void *data)
 		{"bUD0BaseOffset",	0x1A, BYTE},
 		{"bUDConfigPLength",	0x1B, BYTE},
 		{"bDeviceRTTCap",	0x1C, BYTE},
-		{"wPeriodicRTCUpdate",	0x1D, WORD},
-		{"bUFSFeaturesSupport",	0x1F, BYTE},
-		{"bFFUTimeout",		0x20, BYTE},
-		{"bQueueDepth",		0x21, BYTE},
-		{"wDeviceVersion",	0x22, WORD},
-		{"bNumSecureWPArea",	0x24, BYTE},
-		{"dPSAMaxDataSize",	0x25, DWORD},
-		{"bPSAStateTimeout",	0x29, BYTE},
-		{"iProductRevisionLevel",	0x2A, BYTE},
+		{"wPeriodicRTCUpdate",	0x1D, WORD}
 	};
 
 	pm_runtime_get_sync(hba->dev);
@@ -945,12 +936,6 @@ static int ufsdbg_dump_device_desc_show(struct seq_file *file, void *data)
 					   tmp->offset,
 					   tmp->name,
 					   *(u16 *)&desc_buf[tmp->offset]);
-			} else if (tmp->width_byte == DWORD) {
-				seq_printf(file,
-					   "Device Descriptor[Byte offset 0x%x]: %s = 0x%x\n",
-					   tmp->offset,
-					   tmp->name,
-					   *(u32 *)&desc_buf[tmp->offset]);
 			} else {
 				seq_printf(file,
 				"Device Descriptor[offset 0x%x]: %s. Wrong Width = %d",

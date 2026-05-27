@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2002,2007-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <asm/cacheflush.h>
@@ -474,6 +474,8 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 	int pgoff;
 	unsigned int offset;
 	struct page *page;
+	struct kgsl_process_private *priv =
+		((struct kgsl_mem_entry *)vma->vm_private_data)->priv;
 
 	offset = vmf->address - vma->vm_start;
 
@@ -488,9 +490,6 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 		get_page(page);
 	}
 	else {
-		struct kgsl_process_private *priv =
-			((struct kgsl_mem_entry *)vma->vm_private_data)->priv;
-
 		/* We are here because page was reclaimed */
 		spin_unlock(&memdesc->lock);
 
@@ -961,11 +960,16 @@ static int kgsl_shmem_alloc_page(struct page **pages,
 
 void kgsl_shmem_free_pages(struct kgsl_memdesc *memdesc)
 {
-	int i;
+	u32 i, n = 1;
 
-	for (i = 0; i < memdesc->page_count; i++)
-		if (memdesc->pages[i])
+	for (i = 0; i < memdesc->page_count; i += n) {
+		n = 1;
+
+		if (memdesc->pages[i]) {
+			n = 1 << compound_order(memdesc->pages[i]);
 			put_page(memdesc->pages[i]);
+		}
+	}
 }
 
 static int kgsl_memdesc_file_setup(struct kgsl_memdesc *memdesc, uint64_t size)
@@ -1065,6 +1069,21 @@ kgsl_sharedmem_page_alloc_user(struct kgsl_memdesc *memdesc,
 
 	align = (memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT;
 
+#ifdef CONFIG_HUGEPAGE_POOL
+	/*
+	 * As 2MB is the max supported page size, use the alignment
+	 * corresponding to 2MB page to make sure higher order pages
+	 * are used if possible for a given memory size. Also, we
+	 * don't need to update alignment in memdesc flags in case
+	 * higher order page is used, as memdesc flags represent the
+	 * virtual alignment specified by the user which is anyways
+	 * getting satisfied.
+	 */
+	if (align < ilog2(SZ_2M))
+		align = ilog2(SZ_2M);
+
+	page_size = kgsl_get_page_size(size, align, memdesc);
+#else
 	/*
 	 * As 1MB is the max supported page size, use the alignment
 	 * corresponding to 1MB page to make sure higher order pages
@@ -1078,6 +1097,7 @@ kgsl_sharedmem_page_alloc_user(struct kgsl_memdesc *memdesc,
 		align = ilog2(SZ_1M);
 
 	page_size = kgsl_get_page_size(size, align, memdesc);
+#endif
 
 	/*
 	 * The alignment cannot be less than the intended page size - it can be

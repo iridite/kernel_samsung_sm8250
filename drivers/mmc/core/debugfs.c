@@ -532,7 +532,9 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 
 	if (!debugfs_create_x32("state", 0400, root, &card->state))
 		goto err;
+
 	return;
+
 err:
 	debugfs_remove_recursive(root);
 	card->debugfs_root = NULL;

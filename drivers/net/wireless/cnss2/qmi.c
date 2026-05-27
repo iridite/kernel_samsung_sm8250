@@ -93,11 +93,12 @@ static int cnss_wlfw_ind_register_send_sync(struct cnss_plat_data *plat_priv)
 
 	req->client_id_valid = 1;
 	req->client_id = WLFW_CLIENT_ID;
+	req->fw_ready_enable_valid = 1;
+	req->fw_ready_enable = 1;
 	req->request_mem_enable_valid = 1;
 	req->request_mem_enable = 1;
 	req->fw_mem_ready_enable_valid = 1;
 	req->fw_mem_ready_enable = 1;
-	/* fw_ready indication is replaced by fw_init_done in HST/HSP */
 	req->fw_init_done_enable_valid = 1;
 	req->fw_init_done_enable = 1;
 	req->pin_connect_result_enable_valid = 1;
@@ -508,6 +509,28 @@ out:
 	return ret;
 }
 
+#ifdef CONFIG_SEC_CNSS2
+#ifdef CONFIG_SEC_SEPARATE_BDFILE
+static unsigned int system_rev __read_mostly;
+static int __init sec_hw_rev_setup(char *p)
+{
+	int ret;
+	ret = kstrtouint(p, 0, &system_rev);
+	if (unlikely(ret < 0)) {
+		cnss_pr_err("androidboot.revision is malformed (%s)\n", p);
+		return -EINVAL;
+	}
+
+	cnss_pr_info("androidboot.revision %x\n", system_rev);
+
+	return 0;
+}
+early_param("androidboot.revision", sec_hw_rev_setup);
+
+#endif
+extern int ant_from_macloader;
+#endif
+
 static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 				  u32 bdf_type, char *filename,
 				  u32 filename_len)
@@ -517,6 +540,37 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 
 	switch (bdf_type) {
 	case CNSS_BDF_ELF:
+#ifdef CONFIG_SEC_CNSS2
+		if (plat_priv->board_info.board_id == 0xFF)
+			if (ant_from_macloader == 1 || ant_from_macloader == 2) {
+				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME "%d",
+					ant_from_macloader);
+			} else
+				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME);
+		else if (plat_priv->board_info.board_id < 0xFF)
+			if (ant_from_macloader == 1 || ant_from_macloader == 2) {
+				snprintf(filename_tmp, filename_len,
+					 ELF_BDF_FILE_NAME_PREFIX "%02x%d",
+					 plat_priv->board_info.board_id, ant_from_macloader);
+			} else
+				snprintf(filename_tmp, filename_len,
+					 ELF_BDF_FILE_NAME_PREFIX "%02x",
+					 plat_priv->board_info.board_id);
+		else
+			snprintf(filename_tmp, filename_len,
+				 BDF_FILE_NAME_PREFIX "%02x.e%02x",
+				 plat_priv->board_info.board_id >> 8 & 0xFF,
+				 plat_priv->board_info.board_id & 0xFF);
+
+#ifdef CONFIG_SEC_SEPARATE_BDFILE
+	cnss_pr_info("%s: system_rev : %d ", __func__, system_rev);
+	if (system_rev < 2)
+		strcat(filename_tmp, "_old");
+
+	cnss_pr_info("%s: new BDF file by REV (w/ or w/o FEM): %s ", __func__, filename);
+#endif
+
+#else
 		/* Board ID will be equal or less than 0xFF in GF mask case */
 		if (plat_priv->board_info.board_id == 0xFF) {
 			if (plat_priv->chip_info.chip_id & CHIP_ID_GF_MASK)
@@ -540,6 +594,7 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 				 plat_priv->board_info.board_id >> 8 & 0xFF,
 				 plat_priv->board_info.board_id & 0xFF);
 		}
+#endif
 		break;
 	case CNSS_BDF_BIN:
 		if (plat_priv->board_info.board_id == 0xFF) {
@@ -615,7 +670,11 @@ int cnss_wlfw_bdf_dnld_send_sync(struct cnss_plat_data *plat_priv,
 				     filename, sizeof(filename));
 	if (ret > 0) {
 		temp = DUMMY_BDF_FILE_NAME;
+#ifdef CONFIG_SEC_CNSS2
+		remaining = MAX_FIRMWARE_NAME_LEN;
+#else
 		remaining = strlen(DUMMY_BDF_FILE_NAME) + 1;
+#endif
 		goto bypass_bdf;
 	} else if (ret < 0) {
 		goto err_req_fw;
@@ -1850,7 +1909,12 @@ static void cnss_wlfw_request_mem_ind_cb(struct qmi_handle *qmi_wlfw,
 			    ind_msg->mem_seg[i].size, ind_msg->mem_seg[i].type);
 		plat_priv->fw_mem[i].type = ind_msg->mem_seg[i].type;
 		plat_priv->fw_mem[i].size = ind_msg->mem_seg[i].size;
+#ifdef CONFIG_SEC_CNSS2
+		if (!plat_priv->fw_mem[i].va &&
+		    plat_priv->fw_mem[i].type == CNSS_MEM_TYPE_DDR)
+#else
 		if (plat_priv->fw_mem[i].type == CNSS_MEM_TYPE_DDR)
+#endif
 			plat_priv->fw_mem[i].attrs |=
 				DMA_ATTR_FORCE_CONTIGUOUS;
 	}
@@ -1877,12 +1941,6 @@ static void cnss_wlfw_fw_mem_ready_ind_cb(struct qmi_handle *qmi_wlfw,
 			       0, NULL);
 }
 
-/**
- * cnss_wlfw_fw_ready_ind_cb: FW ready indication handler (Helium arch)
- *
- * This event is not required for HST/ HSP as FW calibration done is
- * provided in QMI_WLFW_CAL_DONE_IND_V01
- */
 static void cnss_wlfw_fw_ready_ind_cb(struct qmi_handle *qmi_wlfw,
 				      struct sockaddr_qrtr *sq,
 				      struct qmi_txn *txn, const void *data)
@@ -1891,18 +1949,13 @@ static void cnss_wlfw_fw_ready_ind_cb(struct qmi_handle *qmi_wlfw,
 		container_of(qmi_wlfw, struct cnss_plat_data, qmi_wlfw);
 	struct cnss_cal_info *cal_info;
 
+	cnss_pr_dbg("Received QMI WLFW FW ready indication\n");
+
 	if (!txn) {
 		cnss_pr_err("Spurious indication\n");
 		return;
 	}
 
-	if (plat_priv->device_id == QCA6390_DEVICE_ID ||
-	    plat_priv->device_id == QCA6490_DEVICE_ID) {
-		cnss_pr_dbg("Ignore FW Ready Indication for HST/HSP");
-		return;
-	}
-
-	cnss_pr_dbg("Received QMI WLFW FW ready indication.\n");
 	cal_info = kzalloc(sizeof(*cal_info), GFP_KERNEL);
 	if (!cal_info)
 		return;
@@ -2243,6 +2296,11 @@ int cnss_wlfw_server_arrive(struct cnss_plat_data *plat_priv, void *data)
 
 	if (test_bit(CNSS_QMI_WLFW_CONNECTED, &plat_priv->driver_state)) {
 		cnss_pr_err("Unexpected WLFW server arrive\n");
+		return -EINVAL;
+	}
+
+	if (test_bit(CNSS_IN_REBOOT, &plat_priv->driver_state)) {
+		cnss_pr_err("WLFW server will exit on shutdown\n");
 		return -EINVAL;
 	}
 

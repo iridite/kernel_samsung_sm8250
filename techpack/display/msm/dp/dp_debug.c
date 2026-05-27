@@ -15,6 +15,10 @@
 #include "sde_connector.h"
 #include "dp_display.h"
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include "secdp.h"
+#endif
+
 #define DEBUG_NAME "drm_dp"
 
 struct dp_debug_private {
@@ -2056,7 +2060,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 		goto error_remove_dir;
 	}
 
-	file = debugfs_create_file("hdr", 0444, dir,
+	file = debugfs_create_file("hdr", 0400, dir,
 		debug, &hdr_fops);
 
 	if (IS_ERR_OR_NULL(file)) {
@@ -2066,7 +2070,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 		goto error_remove_dir;
 	}
 
-	file = debugfs_create_file("hdr_mst", 0444, dir,
+	file = debugfs_create_file("hdr_mst", 0400, dir,
 		debug, &hdr_mst_fops);
 
 	if (IS_ERR_OR_NULL(file)) {

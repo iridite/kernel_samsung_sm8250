@@ -3820,6 +3820,11 @@ static ssize_t ext4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 		dio_flags = DIO_LOCKING;
 	}
 
+#ifdef CONFIG_FS_HPB
+	if (ext4_test_inode_state(inode, EXT4_STATE_HPB))
+		dio_flags |= DIO_HPB_IO;
+#endif
+
 	ret = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev, iter,
 				   get_block_func, ext4_end_io_dio, NULL,
 				   dio_flags);
@@ -3902,6 +3907,7 @@ static ssize_t ext4_direct_IO_read(struct kiocb *iocb, struct iov_iter *iter)
 	struct inode *inode = mapping->host;
 	size_t count = iov_iter_count(iter);
 	ssize_t ret;
+	int dio_flags = 0;
 	loff_t offset = iocb->ki_pos;
 	loff_t size = i_size_read(inode);
 
@@ -3924,8 +3930,13 @@ static ssize_t ext4_direct_IO_read(struct kiocb *iocb, struct iov_iter *iter)
 					   iocb->ki_pos + count - 1);
 	if (ret)
 		goto out_unlock;
+
+#ifdef CONFIG_FS_HPB
+	if (ext4_test_inode_state(inode, EXT4_STATE_HPB))
+		dio_flags |= DIO_HPB_IO;
+#endif
 	ret = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev,
-				   iter, ext4_dio_get_block, NULL, NULL, 0);
+				   iter, ext4_dio_get_block, NULL, NULL, dio_flags);
 out_unlock:
 	inode_unlock_shared(inode);
 	return ret;
@@ -5745,6 +5756,18 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 		if (IS_I_VERSION(inode) && attr->ia_size != inode->i_size)
 			inode_inc_iversion(inode);
 
+		/*
+		 * If file has inline data but new size exceeds inline capacity,
+		 * convert to extent-based storage first to prevent inconsistent
+		 * state (inline flag set but size exceeds inline capacity).
+		 */
+		if (ext4_has_inline_data(inode) &&
+		    attr->ia_size > EXT4_I(inode)->i_inline_size) {
+			error = ext4_convert_inline_data(inode);
+			if (error)
+				goto err_out;
+		}
+
 		if (ext4_should_order_data(inode) &&
 		    (attr->ia_size < inode->i_size)) {
 			error = ext4_begin_ordered_truncate(inode,
@@ -5835,8 +5858,15 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 	if (orphan && inode->i_nlink)
 		ext4_orphan_del(NULL, inode);
 
-	if (!error && (ia_valid & ATTR_MODE))
+	if (!error && (ia_valid & ATTR_MODE)) {
 		rc = posix_acl_chmod(inode, inode->i_mode);
+#ifdef CONFIG_FS_HPB
+		if (__is_hpb_file(dentry->d_name.name, inode))
+			ext4_set_inode_state(inode, EXT4_STATE_HPB);
+		else
+			ext4_clear_inode_state(inode, EXT4_STATE_HPB);
+#endif
+	}
 
 err_out:
 	ext4_std_error(inode->i_sb, error);

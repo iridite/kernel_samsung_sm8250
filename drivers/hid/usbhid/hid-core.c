@@ -44,6 +44,8 @@
 
 #define DRIVER_DESC "USB HID core driver"
 
+#undef dev_dbg
+#define dev_dbg dev_err
 /*
  * Module parameters.
  */
@@ -99,6 +101,10 @@ static int hid_start_in(struct hid_device *hid)
 		} else {
 			clear_bit(HID_NO_BANDWIDTH, &usbhid->iofl);
 		}
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		usbhid->in_err_isr = 0;
+		hid_info(hid, "%s submit urb rc=%d\n", __func__, rc);
+#endif
 	}
 	spin_unlock_irqrestore(&usbhid->lock, flags);
 	return rc;
@@ -287,6 +293,22 @@ static void hid_irq_in(struct urb *urb)
 			hid_input_report(urb->context, HID_INPUT_REPORT,
 					 urb->transfer_buffer,
 					 urb->actual_length, 1);
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+			if (status == 0) {
+				if (usbhid->in_err_isr) {
+					usbhid->in_err_isr = 0;
+					hid_info(urb->dev,
+					"usbhid: %s: recover report\n", __func__);
+				}
+			} else {
+				usbhid->in_err_isr++;
+				if (usbhid->in_err_isr < 5)
+					hid_err(urb->dev,
+					"usbhid: %s: err=%d err_isr=%lu length=%d\n",
+					__func__, status, usbhid->in_err_isr
+						, urb->actual_length);
+			}
+#endif
 			/*
 			 * autosuspend refused while keys are pressed
 			 * because most keyboards don't wake up when
@@ -299,6 +321,9 @@ static void hid_irq_in(struct urb *urb)
 		}
 		break;
 	case -EPIPE:		/* stall */
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		hid_err(urb->dev, "usbhid: %s: stall\n", __func__);
+#endif
 		usbhid_mark_busy(usbhid);
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		set_bit(HID_CLEAR_HALT, &usbhid->iofl);
@@ -307,12 +332,20 @@ static void hid_irq_in(struct urb *urb)
 	case -ECONNRESET:	/* unlink */
 	case -ENOENT:
 	case -ESHUTDOWN:	/* unplug */
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		hid_err(urb->dev, "usbhid: %s: unlink %d\n",
+					__func__, urb->status);
+#endif
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		return;
 	case -EILSEQ:		/* protocol error or unplug */
 	case -EPROTO:		/* protocol error or unplug */
 	case -ETIME:		/* protocol error or unplug */
 	case -ETIMEDOUT:	/* Should never happen, but... */
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		hid_err(urb->dev, "usbhid: %s: protocol error %d\n",
+					__func__, urb->status);
+#endif
 		usbhid_mark_busy(usbhid);
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		hid_io_error(hid);
@@ -733,6 +766,10 @@ static int usbhid_open(struct hid_device *hid)
 		msleep(50);
 
 	clear_bit(HID_RESUME_RUNNING, &usbhid->iofl);
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	if (res < 0)
+		hid_err(hid, "%s error res %d\n", __func__, res);
+#endif
 
  Done:
 	mutex_unlock(&usbhid->mutex);
@@ -988,6 +1025,7 @@ static int usbhid_parse(struct hid_device *hid)
 	struct usb_device *dev = interface_to_usbdev (intf);
 	struct hid_descriptor *hdesc;
 	struct hid_class_descriptor *hcdesc;
+	__u8 fixed_opt_descriptors_size;
 	u32 quirks = 0;
 	unsigned int rsize = 0;
 	char *rdesc;
@@ -1018,7 +1056,21 @@ static int usbhid_parse(struct hid_device *hid)
 			      (hdesc->bNumDescriptors - 1) * sizeof(*hcdesc)) {
 		dbg_hid("hid descriptor invalid, bLen=%hhu bNum=%hhu\n",
 			hdesc->bLength, hdesc->bNumDescriptors);
-		return -EINVAL;
+
+		/*
+		 * Some devices may expose a wrong number of descriptors compared
+		 * to the provided length.
+		 * However, we ignore the optional hid class descriptors entirely
+		 * so we can safely recompute the proper field.
+		 */
+		if (hdesc->bLength >= sizeof(*hdesc)) {
+			fixed_opt_descriptors_size = hdesc->bLength - sizeof(*hdesc);
+
+			hid_warn(intf, "fixing wrong optional hid class descriptors count\n");
+			hdesc->bNumDescriptors = fixed_opt_descriptors_size / sizeof(*hcdesc) + 1;
+		} else {
+			return -EINVAL;
+		}
 	}
 
 	hid->version = le16_to_cpu(hdesc->bcdHID);

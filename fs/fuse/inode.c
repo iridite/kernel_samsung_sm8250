@@ -764,14 +764,14 @@ static int fuse_parse_param(struct fs_context *fsc, struct fs_parameter *param)
 						BPF_PROG_TYPE_FUSE, false);
 		if (IS_ERR(ctx->root_bpf)) {
 			ctx->root_bpf = NULL;
-			return invalf(fc, "Unable to open bpf program");
+			return invalf(fsc, "Unable to open bpf program");
 		}
 		break;
 
 	case OPT_ROOT_DIR:
 		ctx->root_dir = fget(result.uint_32);
 		if (!ctx->root_dir)
-			return invalf(fc, "Unable to open root directory");
+			return invalf(fsc, "Unable to open root directory");
 		break;
 
 	case OPT_NO_DAEMON:
@@ -1373,7 +1373,8 @@ static int fuse_bdi_init(struct fuse_conn *fc, struct super_block *sb)
 		bdi_put(sb->s_bdi);
 		sb->s_bdi = &noop_backing_dev_info;
 	}
-	err = super_setup_bdi_name(sb, "%u:%u%s", MAJOR(fc->dev),
+	/* @fs.sec -- 9b4d962cc783453fc63e4302012c8e28e11e31a5 -- */
+	err = sec_super_setup_bdi_name(sb, "%u:%u%s", MAJOR(fc->dev),
 				   MINOR(fc->dev), suffix);
 	if (err)
 		return err;

@@ -26,17 +26,7 @@
 
 #include "uvcvideo.h"
 
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-static int uvc_init_video_isoc_ext(struct uvc_streaming *stream,
-				struct usb_host_endpoint *ep, gfp_t gfp_flags);
-static int uvc_init_video_bulk_ext(struct uvc_streaming *stream,
-				struct usb_host_endpoint *ep, gfp_t gfp_flags);
-
-static void uvc_uninit_video_ext(struct uvc_streaming *stream);
-
-static void uvc_video_complete_ext(struct urb *urb);
-static void uvc_video_complete_ext_work(struct work_struct *work);
-#endif
+#define CONFIG_DMA_NONCOHERENT 1
 
 /* ------------------------------------------------------------------------
  * UVC Controls
@@ -991,9 +981,6 @@ static void uvc_video_stats_update(struct uvc_streaming *stream)
 		stream->stats.stream.nb_scr_diffs_ok++;
 
 	memset(&stream->stats.frame, 0, sizeof(stream->stats.frame));
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	ktime_get_ts(&stream->stats.stream.cur_ts);
-#endif
 }
 
 size_t uvc_video_stats_dump(struct uvc_streaming *stream, char *buf,
@@ -1002,10 +989,6 @@ size_t uvc_video_stats_dump(struct uvc_streaming *stream, char *buf,
 	unsigned int scr_sof_freq;
 	unsigned int duration;
 	size_t count = 0;
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	struct timespec ts2;
-	unsigned long long laptime_ms;
-#endif
 
 	/* Compute the SCR.SOF frequency estimate. At the nominal 1kHz SOF
 	 * frequency this will not overflow before more than 1h.
@@ -1018,43 +1001,6 @@ size_t uvc_video_stats_dump(struct uvc_streaming *stream, char *buf,
 	else
 		scr_sof_freq = 0;
 
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	ts2 = timespec_sub(stream->stats.stream.cur_ts,
-			   stream->stats.stream.init_ts);
-	laptime_ms = timespec_to_ns(&ts2)/1000/1000;
-
-	count += scnprintf(buf + count, size - count,
-			   "Type: %u, FmtId: %u, bpp: %u\n",
-			   stream->cur_format->type,
-			   stream->cur_format->index,
-			   stream->cur_format->bpp);
-	count += scnprintf(buf + count, size - count,
-			   "FrmId: %u, W: %u, H: %u\n",
-			   stream->cur_frame->bFrameIndex,
-			   stream->cur_frame->wWidth,
-			   stream->cur_frame->wHeight);
-	count += scnprintf(buf + count, size - count,
-			   "FrameInterval: %u [ms]\n",
-			   stream->ctrl.dwFrameInterval/10000);
-	count += scnprintf(buf + count, size - count,
-			   "FrameRate: %u (/100)\nlaptime: %u [ms]\n",
-			   (laptime_ms) ?
-				stream->stats.stream.nb_frames
-				*1000*100/laptime_ms : 0,
-			   laptime_ms);
-	count += scnprintf(buf + count, size - count,
-			   "urb_ext_mode: %u (%s)\n",
-			   atomic_read(&stream->urb_ext_active),
-			   (atomic_read(&stream->urb_ext_active) == 1) ?
-			   "Isoc" :
-			   (atomic_read(&stream->urb_ext_active) == 2) ?
-			   "Bulk" : "none");
-	count += scnprintf(buf + count, size - count,
-			   "specify_cpu: %u\n", stream->specify_cpu);
-	count += scnprintf(buf + count, size - count,
-			   "urb_actual_length: %u\n",
-			   stream->stats.stream.urb_act_len);
-#endif
 	count += scnprintf(buf + count, size - count,
 			   "frames:  %u\npackets: %u\nempty:   %u\n"
 			   "errors:  %u\ninvalid: %u\n",
@@ -1085,9 +1031,6 @@ static void uvc_video_stats_start(struct uvc_streaming *stream)
 {
 	memset(&stream->stats, 0, sizeof(stream->stats));
 	stream->stats.stream.min_sof = 2048;
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	ktime_get_ts(&stream->stats.stream.init_ts);
-#endif
 }
 
 static void uvc_video_stats_stop(struct uvc_streaming *stream)
@@ -1644,7 +1587,7 @@ static void uvc_free_urb_buffers(struct uvc_streaming *stream)
 {
 	unsigned int i;
 
-	for (i = 0; i < stream->urbs_num; ++i) {
+	for (i = 0; i < stream->max_urb; ++i) {
 		if (stream->urb_buffer[i]) {
 #ifndef CONFIG_DMA_NONCOHERENT
 			usb_free_coherent(stream->dev->udev, stream->urb_size,
@@ -1656,8 +1599,6 @@ static void uvc_free_urb_buffers(struct uvc_streaming *stream)
 		}
 	}
 
-	kfree(stream->urb_buffer);
-	kfree(stream->urb_dma);
 	stream->urb_size = 0;
 }
 
@@ -1686,25 +1627,22 @@ static int uvc_alloc_urb_buffers(struct uvc_streaming *stream,
 	 * payloads across multiple URBs.
 	 */
 	npackets = DIV_ROUND_UP(size, psize);
-	if (npackets > uvc_maxpackets_param)
-		npackets = uvc_maxpackets_param;
+	if (npackets > stream->max_urb_packets)
+		npackets = stream->max_urb_packets;
 
-	stream->urb_buffer = kmalloc(stream->urbs_num * sizeof(char *),
-				GFP_KERNEL);
-	stream->urb_dma = kmalloc(stream->urbs_num * sizeof(dma_addr_t),
-				GFP_KERNEL);
-	if (stream->urb_buffer == NULL || stream->urb_dma == NULL) {
-		uvc_printk(KERN_ERR,
-			"Failed to kmalloc: urb_buffer %p urb_dma %p\n",
-			stream->urb_buffer, stream->urb_dma);
-		kfree(stream->urb_buffer);
-		kfree(stream->urb_dma);
-		return 0;
-	}
+
+	/* Allocate memory for storing URB pointers */
+	stream->urb = kcalloc(stream->max_urb,
+			sizeof(struct urb *), gfp_flags | __GFP_NOWARN);
+	stream->urb_buffer = kcalloc(stream->max_urb,
+			sizeof(char *), gfp_flags | __GFP_NOWARN);
+	stream->urb_dma = kcalloc(stream->max_urb,
+			sizeof(dma_addr_t), gfp_flags | __GFP_NOWARN);
+
 
 	/* Retry allocations until one succeed. */
 	for (; npackets > 1; npackets /= 2) {
-		for (i = 0; i < stream->urbs_num; ++i) {
+		for (i = 0; i < stream->max_urb; ++i) {
 			stream->urb_size = psize * npackets;
 #ifndef CONFIG_DMA_NONCOHERENT
 			stream->urb_buffer[i] = usb_alloc_coherent(
@@ -1720,11 +1658,10 @@ static int uvc_alloc_urb_buffers(struct uvc_streaming *stream,
 			}
 		}
 
-		if (i == stream->urbs_num) {
-			uvc_trace(UVC_TRACE_VIDEO, "Allocated %u URB buffers "
-				"of %ux%u bytes each.\n",
-				stream->urbs_num, npackets,
-				psize);
+		if (i == stream->max_urb) {
+			uvc_trace(UVC_TRACE_VIDEO,
+				"Allocated %u URB buffers of %ux%u bytes each.\n",
+				stream->max_urb, npackets, psize);
 			return npackets;
 		}
 	}
@@ -1744,14 +1681,7 @@ static void uvc_uninit_video(struct uvc_streaming *stream, int free_buffers)
 
 	uvc_video_stats_stop(stream);
 
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	uvc_uninit_video_ext(stream);
-
-#endif
-	if (!stream->urb)
-		goto free_urb_buffer;
-
-	for (i = 0; i < stream->urbs_num; ++i) {
+	for (i = 0; i < stream->max_urb; ++i) {
 		urb = stream->urb[i];
 		if (urb == NULL)
 			continue;
@@ -1760,11 +1690,6 @@ static void uvc_uninit_video(struct uvc_streaming *stream, int free_buffers)
 		usb_free_urb(urb);
 		stream->urb[i] = NULL;
 	}
-	kfree(stream->urb);
-	stream->urb = NULL;
-
-free_urb_buffer:
-	stream->urbs_num = 0;
 
 	if (free_buffers)
 		uvc_free_urb_buffers(stream);
@@ -1810,12 +1735,6 @@ static int uvc_init_video_isoc(struct uvc_streaming *stream,
 	u16 psize;
 	u32 size;
 
-	stream->urbs_num = uvc_urbs_isoc_param;
-
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	return uvc_init_video_isoc_ext(stream, ep, gfp_flags);
-
-#endif
 	psize = uvc_endpoint_max_bpi(stream->dev->udev, ep);
 	size = stream->ctrl.dwMaxVideoFrameSize;
 
@@ -1823,16 +1742,9 @@ static int uvc_init_video_isoc(struct uvc_streaming *stream,
 	if (npackets == 0)
 		return -ENOMEM;
 
-	stream->urb = kmalloc(stream->urbs_num * sizeof(struct urb *),
-				GFP_KERNEL);
-	if (stream->urb == NULL) {
-		uvc_free_urb_buffers(stream);
-		return -ENOMEM;
-	}
-
 	size = npackets * psize;
 
-	for (i = 0; i < stream->urbs_num; ++i) {
+	for (i = 0; i < stream->max_urb; ++i) {
 		urb = usb_alloc_urb(npackets, gfp_flags);
 		if (urb == NULL) {
 			uvc_uninit_video(stream, 1);
@@ -1878,12 +1790,6 @@ static int uvc_init_video_bulk(struct uvc_streaming *stream,
 	u16 psize;
 	u32 size;
 
-	stream->urbs_num = uvc_urbs_bulk_param;
-
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	return uvc_init_video_bulk_ext(stream, ep, gfp_flags);
-
-#endif
 	psize = usb_endpoint_maxp(&ep->desc);
 	size = stream->ctrl.dwMaxPayloadTransferSize;
 	stream->bulk.max_payload_size = size;
@@ -1891,13 +1797,6 @@ static int uvc_init_video_bulk(struct uvc_streaming *stream,
 	npackets = uvc_alloc_urb_buffers(stream, size, psize, gfp_flags);
 	if (npackets == 0)
 		return -ENOMEM;
-
-	stream->urb = kmalloc(stream->urbs_num * sizeof(struct urb *),
-				GFP_KERNEL);
-	if (stream->urb == NULL) {
-		uvc_free_urb_buffers(stream);
-		return -ENOMEM;
-	}
 
 	size = npackets * psize;
 
@@ -1911,7 +1810,7 @@ static int uvc_init_video_bulk(struct uvc_streaming *stream,
 	if (stream->type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
 		size = 0;
 
-	for (i = 0; i < stream->urbs_num; ++i) {
+	for (i = 0; i < stream->max_urb; ++i) {
 		urb = usb_alloc_urb(0, gfp_flags);
 		if (urb == NULL) {
 			uvc_uninit_video(stream, 1);
@@ -2020,14 +1919,9 @@ static int uvc_init_video(struct uvc_streaming *stream, gfp_t gfp_flags)
 		return ret;
 
 	/* Submit the URBs. */
-	for (i = 0; i < stream->urbs_num; ++i) {
-		struct urb *urb;
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-		urb = stream->urb_ext[i]->urb;
-#else
-		urb = stream->urb[i];
-#endif
-		ret = usb_submit_urb(urb, gfp_flags);
+	stream->refcnt++;
+	for (i = 0; i < stream->max_urb; ++i) {
+		ret = usb_submit_urb(stream->urb[i], gfp_flags);
 		if (ret < 0) {
 			uvc_printk(KERN_ERR, "Failed to submit URB %u "
 					"(%d).\n", i, ret);
@@ -2035,7 +1929,6 @@ static int uvc_init_video(struct uvc_streaming *stream, gfp_t gfp_flags)
 			return ret;
 		}
 	}
-
 
 	/* The Logitech C920 temporarily forgets that it should not be adjusting
 	 * Exposure Absolute during init so restore controls to stored values.
@@ -2130,10 +2023,6 @@ int uvc_video_init(struct uvc_streaming *stream)
 	}
 
 	atomic_set(&stream->active, 0);
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-	atomic_set(&stream->urb_ext_active, 0);
-	stream->specify_cpu = uvc_specify_cpu;
-#endif
 
 	/* Alternate setting 0 should be the default, yet the XBox Live Vision
 	 * Cam (and possibly other devices) crash or otherwise misbehave if
@@ -2191,6 +2080,9 @@ int uvc_video_init(struct uvc_streaming *stream)
 	stream->def_format = format;
 	stream->cur_format = format;
 	stream->cur_frame = frame;
+
+	stream->max_urb = UVC_URBS;
+	stream->max_urb_packets = UVC_MAX_PACKETS;
 
 	/* Select the video decoding function */
 	if (stream->type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
@@ -2267,7 +2159,3 @@ error_commit:
 
 	return ret;
 }
-
-#ifdef CONFIG_SOMC_UVC_EXTENSION
-#include "uvc_video_ext.c"
-#endif

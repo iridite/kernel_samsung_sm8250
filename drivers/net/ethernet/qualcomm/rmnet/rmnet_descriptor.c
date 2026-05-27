@@ -236,8 +236,6 @@ rmnet_frag_process_flow_start(struct rmnet_map_control_command_header *cmd,
 	 */
 	if (is_dl_mark_v2)
 		rmnet_map_dl_hdr_notify_v2(port, dlhdr, cmd);
-	else
-		rmnet_map_dl_hdr_notify(port, dlhdr);
 }
 
 static void
@@ -264,8 +262,6 @@ rmnet_frag_process_flow_end(struct rmnet_map_control_command_header *cmd,
 	 */
 	if (is_dl_mark_v2)
 		rmnet_map_dl_trl_notify_v2(port, dltrl, cmd);
-	else
-		rmnet_map_dl_trl_notify(port, dltrl);
 }
 
 /* Process MAP command frame and send N/ACK message as appropriate. Message cmd
@@ -1173,12 +1169,16 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 {
 	rmnet_perf_chain_hook_t rmnet_perf_opt_chain_end;
 	LIST_HEAD(desc_list);
-
+	struct napi_struct* napi = get_current_napi_context();
+	bool dl_marker =  !!(port->data_format &
+						RMNET_INGRESS_FORMAT_DL_MARKER);
+	
 	/* Deaggregation and freeing of HW originating
 	 * buffers is done within here
 	 */
 	while (skb) {
 		struct sk_buff *skb_frag;
+		static u32 curr_count;
 
 		rmnet_frag_deaggregate(skb_shinfo(skb)->frags, port,
 				       &desc_list);
@@ -1189,6 +1189,13 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 						 list) {
 				list_del_init(&frag_desc->list);
 				__rmnet_frag_ingress_handler(frag_desc, port);
+				
+				curr_count++;
+#if defined(CONFIG_RMNET_ARGOS)
+				if (dl_marker && napi && config_flushcount &&
+					!(curr_count % config_flushcount))
+					napi_gro_flush(napi, false);
+#endif
 			}
 		}
 
@@ -1196,6 +1203,9 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 		skb_shinfo(skb)->frag_list = NULL;
 		consume_skb(skb);
 		skb = skb_frag;
+		
+		if (dl_marker && napi && !skb)
+			napi_gro_flush(napi, false);
 	}
 
 	rcu_read_lock();

@@ -927,106 +927,6 @@ struct audproc_enable_param_t {
 	uint32_t                  enable;
 };
 
-#define AUDPROC_MODULE_ID_RAMP_UP_CLIPPER_1      0x10101100
-#define AUDPROC_PARAM_ID_RAMP_UP_CLIPPER_ENABLE  0x10101001
-
-struct audproc_enable_rampup_clipper_module {
-	uint32_t	num_channels;
-	uint32_t	clipper_enable_left;
-	uint32_t	clipper_enable_right;
-	uint32_t	gain_fade_in_enable_left;
-	uint32_t	gain_fade_in_enable_right;
-} __packed;
-
-struct audproc_volume_params {
-	uint32_t	volume_l;
-	uint32_t	volume_r;
-} __packed;
-
-#define AUDPROC_MODULE_ID_INV_VOL_CTRL  0x10002200
-#define AUDPROC_PARAM_ID_INV_VOL_ENABLE 0x10002201
-#define AUDPROC_PARAM_ID_INV_VOL_CTRL   0x10002202
-
-struct audproc_inverse_audio_volume_params {
-	uint32_t	volume_l;
-	uint32_t	volume_r;
-} __packed;
-
-#define AUDPROC_MODULE_ID_LOG10                  0x10002070
-#define AUDPROC_PARAM_ID_LOG10_ENABLE            0x10002071
-
-#define AUDPROC_MODULE_ID_LOG10GAIN              0x10002080
-#define AUDPROC_PARAM_ID_LOG10GAIN_ENABLE        0x10002081
-
-#define AUDPROC_MODULE_ID_NOISE_CUT              0x10002060
-#define AUDPROC_PARAM_ID_NOISE_CUT_ENABLE        0x10002061
-
-#define AUDPROC_MODULE_ID_NEGATIVE_CUT           0x10002040
-#define AUDPROC_PARAM_ID_NEGATIVE_CUT_ENABLE     0x10002041
-
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER         0x10002100
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_1       0x10002110
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_2       0x10002120
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_3       0x10002130
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_4       0x10002140
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_5       0x10002150
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_6       0x10002160
-#define AUDPROC_PARAM_ID_VOLUME_ENABLE           0x10002101
-#define AUDPROC_PARAM_ID_VOLUME_CTRL             0x10002102
-
-#define AUDPROC_MODULE_ID_DUAL_MONO              0x10002030
-#define AUDPROC_MODULE_ID_DUAL_MONO1             0x10012030
-#define AUDPROC_PARAM_ID_DUAL_MONO_ENABLE        0x10002031
-
-#define AUDPROC_MODULE_ID_ABS                    0x10002020
-#define AUDPROC_PARAM_ID_ABS_ENABLE              0x10002021
-
-#define AUDPROC_MODULE_ID_ADD1                   0x10002050
-#define AUDPROC_PARAM_ID_ADD1_ENABLE             0x10002051
-
-#define AUDPROC_MODULE_ID_ADDX                   0x10103000
-#define AUDPROC_PARAM_ID_ADDX_ENABLE             0x10103001
-
-#define AUDPROC_MODULE_ID_FORMAT_CONVERTER       0x10005000
-#define AUDPROC_PARAM_ID_FORMAT_CONVERTER_ENABLE 0x10005001
-
-#define AUDPROC_MODULE_ID_MCHAN_IIR_1            0x1011031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_2            0x1021031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_3            0x1031031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_4            0x1041031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_5            0x1051031F
-#define AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE        0x0001031C
-
-struct audproc_channel_type_iir_enable
-{
-	uint8_t channel_type;
-	uint8_t reserved1;
-	uint8_t reserved2;
-	uint8_t reserved3;
-	uint32_t enable_flag;
-} __packed;
-
-struct audproc_enable_module_mchan_iir
-{
-	uint32_t num_channels;
-	struct audproc_channel_type_iir_enable enable_flag_settings[32];
-} __packed;
-
-#define AUDPROC_MODULE_ID_DELAY                  0x10004000
-#define AUDPROC_MODULE_ID_DELAY_1                0x10004010
-#define AUDPROC_PARAM_ID_DELAY_ENABLE            0x10004001
-
-struct audproc_enable_module_mono {
-	uint32_t	enable_flag;
-} __packed;
-
-#define MAX_NUM_CHANNELS 2
-
-struct audproc_enable_module_stereo {
-	uint32_t	num_channels;
-	uint32_t	enable[MAX_NUM_CHANNELS];
-} __packed;
-
 /*
  * Allows a client to control the gains on various session-to-COPP paths.
  */
@@ -4204,6 +4104,12 @@ struct afe_id_aptx_adaptive_enc_init
 #define AFE_ENCODER_PARAM_ID_PACKETIZER_ID 0x0001322E
 
 /*
+ * MI2S packetizer id for #AVS_MODULE_ID_ENCODER module.
+ * Used when I2S interface is selected.
+ */
+#define AFE_MODULE_ID_PACKETIZER_MI2S 0x1000F101
+
+/*
  * Encoder config block  parameter for the #AVS_MODULE_ID_ENCODER module.
  * This parameter may be set runtime.
  */
@@ -4343,6 +4249,7 @@ struct aptx_channel_mode_param_t {
  * @table{weak__asm__sbc__enc__cfg__t}
  */
 #define ASM_MEDIA_FMT_SBC                         0x00010BF2
+#define ASM_MEDIA_FMT_SBC_SS                      0x00010BF5
 
 /* SBC channel Mono mode.*/
 #define ASM_MEDIA_FMT_SBC_CHANNEL_MODE_MONO                     1
@@ -4421,6 +4328,11 @@ struct asm_sbc_enc_cfg_t {
 	 */
 	uint32_t    sample_rate;
 };
+
+struct asm_ss_sbc_enc_cfg_t {
+	struct asm_sbc_enc_cfg_t custom_config;
+	struct afe_abr_enc_cfg_t abr_config;
+} __packed;
 
 #define ASM_MEDIA_FMT_AAC_AOT_LC            2
 #define ASM_MEDIA_FMT_AAC_AOT_SBR           5
@@ -4663,6 +4575,22 @@ struct asm_ldac_enc_cfg_t {
 	struct afe_abr_enc_cfg_t abr_config;
 } __packed;
 
+/* FMT ID for SSC */
+#define ASM_MEDIA_FMT_SSC 0x00010BF3
+
+struct asm_custom_enc_cfg_ssc_t {
+	uint32_t    sample_rate;
+	/* Mono or stereo */
+	uint16_t    num_channels;
+	uint16_t    reserved;
+	/* num_ch == 1, then PCM_CHANNEL_C,
+	 * num_ch == 2, then {PCM_CHANNEL_L, PCM_CHANNEL_R}
+	 */
+	uint8_t     channel_mapping[8];
+	uint32_t    custom_size;
+	struct afe_abr_enc_cfg_t abr_config;
+} __packed;
+
 struct afe_enc_fmt_id_param_t {
 	/*
 	 * Supported values:
@@ -4852,6 +4780,7 @@ struct asm_aptx_ad_speech_dec_cfg_t {
 
 union afe_enc_config_data {
 	struct asm_sbc_enc_cfg_t sbc_config;
+	struct asm_ss_sbc_enc_cfg_t ss_sbc_config;
 	struct asm_aac_enc_cfg_t aac_config;
 	struct asm_custom_enc_cfg_t  custom_config;
 	struct asm_celt_enc_cfg_t  celt_config;
@@ -4859,12 +4788,15 @@ union afe_enc_config_data {
 	struct asm_ldac_enc_cfg_t  ldac_config;
 	struct asm_aptx_ad_enc_cfg_t  aptx_ad_config;
 	struct asm_aptx_ad_speech_enc_cfg_t aptx_ad_speech_config;
+	struct asm_custom_enc_cfg_ssc_t ssc_config;
 };
 
 struct afe_enc_config {
 	u32 format;
 	u32 scrambler_mode;
 	u32 mono_mode;
+	u16 mtu;
+	u16 a2dp_suspend;
 	union afe_enc_config_data data;
 };
 
@@ -4955,6 +4887,47 @@ struct afe_enc_aptx_ad_speech_cfg_blk_param_t {
 struct afe_dec_media_fmt_t {
 	union afe_dec_config_data dec_media_config;
 } __packed;
+
+#define AVS_PARAM_ID_PEER_MTU_ID 0x0001F101
+#define AVS_PARAM_ID_A2DP_SUSPEND_ID 0x0001F107
+#define AVS_ENCODER_PARAM_ID_ENC_BITRATE 0x0001322D
+#define AVS_PARAM_ID_ENC_FORMAT_ID 0x0001F105
+
+/*
+ * Payload of the AVS_PARAM_ID_DYNAMIC_BITPOOL_ID parameter.
+ */
+struct avs_enc_mtu_param_t {
+	/*
+	 * Supported values:
+	 * #AVS_MODULE_ID_PACKETIZER_COP
+	 * Any OpenDSP supported values
+	 */
+	uint32_t mtu;
+};
+
+/*
+ * Payload of the AVS_PARAM_ID_A2DP_SUSPEND_ID parameter.
+ */
+struct avs_enc_a2dp_suspend_param_t {
+	/*
+	 * Supported values:
+	 * #AVS_MODULE_ID_PACKETIZER_COP
+	 * Any OpenDSP supported values
+	 */
+	uint32_t a2dp_suspend;
+};
+
+/*
+ * Payload of the AVS_PARAM_ID_ENC_FORMAT_ID parameter.
+ */
+struct avs_enc_format_param_t {
+	/*
+	 * Supported values:
+	 * #AVS_MODULE_ID_PACKETIZER_COP
+	 * Any OpenDSP supported values
+	 */
+	uint32_t enc_format;
+};
 
 /*
  * Payload of the AVS_ENCODER_PARAM_ID_PACKETIZER_ID parameter.
@@ -6324,6 +6297,22 @@ struct asm_enc_cfg_blk_param_v2 {
 
 } __packed;
 
+struct asm_bitrate_param_t {
+	u32                  enc_bitrate;
+} __packed;
+
+struct asm_mtu_param_t {
+	u32                  mtu;
+} __packed;
+
+struct asm_a2dp_suspend_param_t {
+	u32                  a2dp_suspend;
+} __packed;
+
+struct asm_enc_format_param_t {
+	u32                  enc_format;
+} __packed;
+
 struct asm_custom_enc_cfg_t_v2 {
 	struct apr_hdr hdr;
 	struct asm_stream_cmd_set_encdec_param encdec;
@@ -6726,6 +6715,13 @@ struct asm_aac_enc_cfg_v2 {
  * The sampling rate must not change during encoding.
  */
 
+} __packed;
+
+struct asm_dyn_bitpool_cfg_v2 {
+	struct apr_hdr hdr;
+	struct afe_port_cmd_set_param_v2 param;
+	struct param_hdr_v1 pdata;
+	struct asm_bitrate_param_t dyn_bitpool;
 } __packed;
 
 #define ASM_MEDIA_FMT_G711_ALAW_FS 0x00010BF7
@@ -9152,16 +9148,11 @@ struct asm_stream_cmd_open_read_compressed {
 								0x11000000
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_MCH_PEAK_VOL \
 								0x0001031B
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_IIR_COPP_MBDRC_V3 \
-								0x11000004
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_FIR_IIR_COPP_MBDRC_V3 \
-								0x11000009
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_MONO_AUDIO_COPP  0x00010315
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_STEREO_AUDIO_COPP 0x00010316
 #define AUDPROC_COPPOPOLOGY_ID_MCHAN_IIR_AUDIO           0x00010715
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_DEFAULT_AUDIO_COPP   0x00010BE3
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_PEAKMETER_AUDIO_COPP 0x00010317
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_AUDIO_RX_SONY_SPEAKER 0x11000010
 #define AUDPROC_MODULE_ID_AIG   0x00010716
 #define AUDPROC_PARAM_ID_AIG_ENABLE		0x00010717
 #define AUDPROC_PARAM_ID_AIG_CONFIG		0x00010718

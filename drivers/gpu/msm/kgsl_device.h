@@ -323,6 +323,10 @@ struct kgsl_device {
 	unsigned int num_l3_pwrlevels;
 	/* store current L3 vote to determine if we should change our vote */
 	unsigned int cur_l3_pwrlevel;
+	/** @timelines: Iterator for assigning IDs to timelines */
+	struct idr timelines;
+	/** @timelines_lock: Spinlock to protect the timelines idr */
+	spinlock_t timelines_lock;
 };
 
 #define KGSL_MMU_DEVICE(_mmu) \
@@ -445,6 +449,7 @@ struct kgsl_context {
 struct kgsl_process_private {
 	unsigned long priv;
 	struct pid *pid;
+	pid_t tid;
 	char comm[TASK_COMM_LEN];
 	spinlock_t mem_lock;
 	struct kref refcount;

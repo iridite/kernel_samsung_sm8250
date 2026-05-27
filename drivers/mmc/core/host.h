@@ -13,8 +13,6 @@
 
 #include <linux/mmc/host.h>
 
-#define cls_dev_to_mmc_host(d)	container_of(d, struct mmc_host, class_dev)
-
 int mmc_register_host_class(void);
 void mmc_unregister_host_class(void);
 
@@ -80,6 +78,12 @@ static inline bool mmc_card_hs400(struct mmc_card *card)
 static inline bool mmc_card_hs400es(struct mmc_card *card)
 {
 	return card->host->ios.enhanced_strobe;
+}
+
+static inline bool mmc_card_sd_express(struct mmc_host *host)
+{
+	return host->ios.timing == MMC_TIMING_SD_EXP ||
+		host->ios.timing == MMC_TIMING_SD_EXP_1_2V;
 }
 
 #endif

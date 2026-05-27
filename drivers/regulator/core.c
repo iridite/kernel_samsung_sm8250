@@ -53,6 +53,9 @@
 	pr_debug("%s: " fmt, rdev_get_name(rdev), ##__VA_ARGS__)
 
 static DEFINE_MUTEX(regulator_list_mutex);
+#ifdef CONFIG_SEC_PM
+static LIST_HEAD(regulator_list);
+#endif /* CONFIG_SEC_PM */
 static LIST_HEAD(regulator_map_list);
 static LIST_HEAD(regulator_ena_gpio_list);
 static LIST_HEAD(regulator_supply_alias_list);
@@ -1250,6 +1253,24 @@ static int set_machine_constraints(struct regulator_dev *rdev)
 		}
 	}
 
+	/*
+	 * If there is no mechanism for controlling the regulator then
+	 * flag it as always_on so we don't end up duplicating checks
+	 * for this so much.  Note that we could control the state of
+	 * a supply to control the output on a regulator that has no
+	 * direct control.
+	 */
+	if (!rdev->ena_pin && !ops->enable) {
+		if (rdev->supply_name && !rdev->supply)
+			return -EPROBE_DEFER;
+
+		if (rdev->supply)
+			rdev->constraints->always_on =
+				rdev->supply->rdev->constraints->always_on;
+		else
+			rdev->constraints->always_on = true;
+	}
+
 	/* If the constraints say the regulator should be on at this point
 	 * and we have control then make sure it is enabled.
 	 */
@@ -1283,6 +1304,8 @@ static int set_machine_constraints(struct regulator_dev *rdev)
 
 		if (rdev->constraints->always_on)
 			rdev->use_count++;
+	} else if (rdev->desc->off_on_delay) {
+		rdev->last_off_jiffy = jiffies;
 	}
 
 	print_constraints(rdev);
@@ -3601,6 +3624,28 @@ int regulator_get_voltage(struct regulator *regulator)
 }
 EXPORT_SYMBOL_GPL(regulator_get_voltage);
 
+#ifdef CONFIG_SEC_PM
+int regulator_set_short_detection(struct regulator *regulator,
+				  bool enable, int lv_uA)
+{
+	struct regulator_dev *rdev = regulator->rdev;
+	int ret;
+
+	mutex_lock(&rdev->mutex);
+
+	if (!rdev->desc->ops->set_short_detection) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = rdev->desc->ops->set_short_detection(rdev, enable, lv_uA);
+out:
+	mutex_unlock(&rdev->mutex);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(regulator_set_short_detection);
+#endif /* CONFIG_SEC_PM */
+
 /**
  * regulator_set_current_limit - set regulator output current limit
  * @regulator: regulator source
@@ -4901,7 +4946,9 @@ regulator_register(const struct regulator_desc *regulator_desc,
 			}
 		}
 	}
-
+#ifdef CONFIG_SEC_PM
+	list_add(&rdev->list, &regulator_list);
+#endif /* CONFIG_SEC_PM */
 	if (!rdev->desc->ops->get_voltage &&
 	    !rdev->desc->ops->list_voltage &&
 	    !rdev->desc->fixed_uV)
@@ -5103,6 +5150,78 @@ void regulator_set_drvdata(struct regulator *regulator, void *data)
 	regulator->rdev->reg_data = data;
 }
 EXPORT_SYMBOL_GPL(regulator_set_drvdata);
+
+#ifdef CONFIG_SEC_PM
+static unsigned int __regulator_get_mode(struct regulator_dev *rdev)
+{
+	int ret;
+
+	/* sanity check */
+	if (!rdev->desc->ops->get_mode) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = rdev->desc->ops->get_mode(rdev);
+out:
+	return ret;
+}
+
+static int regulator_check_str(struct regulator *reg,
+	   unsigned int *slen, char *snames)
+{
+	if (reg->enabled && reg->supply_name) {
+		if (*slen + strlen(reg->supply_name) + 3 > 80)
+			return -ENOMEM;
+		*slen += snprintf(snames + *slen,
+				strlen(reg->supply_name) + 3,
+				", %s", reg->supply_name);
+	}
+	return 0;
+}
+
+void regulator_showall_enabled(void)
+{
+	struct regulator_dev *rdev;
+	unsigned int cnt = 0;
+	unsigned int slen;
+	struct regulator *reg;
+	char snames[80];
+
+	pr_info("---Enabled regulators---\n");
+	mutex_lock(&regulator_list_mutex);
+	list_for_each_entry(rdev, &regulator_list, list) {
+		mutex_lock(&rdev->mutex);
+		if (_regulator_is_enabled(rdev)) {
+			if (rdev->desc->ops) {
+				slen = 0;
+				list_for_each_entry(reg,
+						&rdev->consumer_list, list) {
+					if (regulator_check_str(reg,
+								&slen, snames))
+						break;
+				}
+
+				pr_info("%s: %duV, 0x%x mode%s\n",
+						rdev_get_name(rdev),
+						_regulator_get_voltage(rdev),
+						__regulator_get_mode(rdev),
+						slen ? snames : ", null");
+			} else {
+				pr_info("%s enabled\n", rdev_get_name(rdev));
+			}
+			cnt++;
+		}
+		mutex_unlock(&rdev->mutex);
+	}
+	mutex_unlock(&regulator_list_mutex);
+
+	if (cnt)
+		pr_info("---Enabled regulator count: %d---\n", cnt);
+	else
+		pr_info("---No regulators enabled---\n");
+}
+#endif /* CONFIG_SEC_PM */
 
 /**
  * regulator_get_id - get regulator ID

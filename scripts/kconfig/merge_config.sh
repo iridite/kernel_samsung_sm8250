@@ -134,7 +134,7 @@ for MERGE_FILE in $MERGE_LIST ; do
 done
 
 if [ "$RUNMAKE" = "false" ]; then
-	/bin/cp -T -- "$TMP_FILE" "$KCONFIG_CONFIG"
+	cp -T -- "$TMP_FILE" "$KCONFIG_CONFIG"
 	echo "#"
 	echo "# merged configuration written to $KCONFIG_CONFIG (needs make)"
 	echo "#"

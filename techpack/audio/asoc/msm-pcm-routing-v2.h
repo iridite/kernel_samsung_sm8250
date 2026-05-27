@@ -5,6 +5,9 @@
 #define _MSM_PCM_ROUTING_H
 #include <dsp/apr_audio-v2.h>
 #include <dsp/q6adm-v2.h>
+#ifdef CONFIG_SEC_SND_ADAPTATION
+#include <dsp/sec_adaptation.h>
+#endif
 
 /*
  * These names are used by HAL to specify the BE. If any changes are
@@ -528,7 +531,6 @@ enum {
 	EXT_EC_REF_SLIM_1_TX,
 	EXT_EC_REF_PRI_TDM_TX,
 	EXT_EC_REF_SEC_TDM_TX,
-	EXT_EC_REF_SENARY_MI2S_TX,
 };
 
 #define INVALID_SESSION -1
@@ -552,8 +554,6 @@ enum {
 
 #define STREAM_TYPE_ASM 0
 #define STREAM_TYPE_LSM 1
-
-#define NUM_BEX_MODULES 17
 
 enum {
 	ADM_TOPOLOGY_CAL_TYPE_IDX = 0,
@@ -610,31 +610,6 @@ struct msm_pcm_stream_app_type_cfg {
 	int sample_rate;
 };
 
-struct msm_media_vibration_params {
-	uint32_t input_volume_l;
-	uint32_t input_volume_r;
-	uint32_t beat_input_volume_l;
-	uint32_t bass_input_volume_r;
-	uint32_t beat_output_volume_l;
-	uint32_t bass_output_volume_r;
-	uint32_t level_volume_l;
-	uint32_t level_volume_r;
-	uint32_t hpf_a_l;
-	uint32_t hpf_a_r;
-	uint32_t hpf_b_l;
-	uint32_t hpf_b_r;
-	uint32_t log10_l;
-	uint32_t log10_r;
-	uint32_t add1_l;
-	uint32_t add1_r;
-	uint32_t addx_l;
-	uint32_t addx_r;
-	uint32_t negative_cut_l;
-	uint32_t negative_cut_r;
-	uint32_t audio_volume_l;
-	uint32_t audio_volume_r;
-};
-
 /* dai_id: front-end ID,
  * dspst_id:  DSP audio stream ID
  * stream_type: playback or capture
@@ -682,4 +657,8 @@ int msm_pcm_routing_set_channel_mixer_runtime(
 	int be_id, int session_id,
 	int session_type,
 	struct msm_pcm_channel_mixer *params);
+#ifdef CONFIG_SEC_SND_ADAPTATION
+int q6audio_get_copp_idx_from_port_id(int port_id, enum sb_type func_type,
+	int *copp_idx);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
 #endif /*_MSM_PCM_H*/

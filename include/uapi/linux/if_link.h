@@ -422,6 +422,7 @@ enum macvlan_macaddr_mode {
 };
 
 #define MACVLAN_FLAG_NOPROMISC	1
+#define MACVLAN_FLAG_NODST	2 /* skip dst macvlan if matching src macvlan */
 
 /* VRF section */
 enum {
@@ -554,9 +555,19 @@ enum {
 	IFLA_GENEVE_UDP_ZERO_CSUM6_TX,
 	IFLA_GENEVE_UDP_ZERO_CSUM6_RX,
 	IFLA_GENEVE_LABEL,
+	IFLA_GENEVE_TTL_INHERIT,
+	IFLA_GENEVE_DF,
 	__IFLA_GENEVE_MAX
 };
 #define IFLA_GENEVE_MAX	(__IFLA_GENEVE_MAX - 1)
+
+enum ifla_geneve_df {
+	GENEVE_DF_UNSET = 0,
+	GENEVE_DF_SET,
+	GENEVE_DF_INHERIT,
+	__GENEVE_DF_END,
+	GENEVE_DF_MAX = __GENEVE_DF_END - 1,
+};
 
 /* PPP section */
 enum {
@@ -989,6 +1000,7 @@ enum {
 #define RMNET_FLAGS_INGRESS_COALESCE              (1U << 4)
 #define RMNET_FLAGS_INGRESS_MAP_CKSUMV5           (1U << 5)
 #define RMNET_FLAGS_EGRESS_MAP_CKSUMV5            (1U << 6)
+#define RMNET_FLAGS_EGRESS_MAP_CKSUMV3            (1U << 7)
 
 enum {
 	IFLA_RMNET_UNSPEC,

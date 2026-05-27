@@ -43,6 +43,10 @@
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
 
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+#include <linux/usblog_proc_notify.h>
+#endif
+
 #define MAX_INST_NAME_LEN        40
 #define BULK_BUFFER_SIZE    16384
 #define ACC_STRING_SIZE     256
@@ -55,6 +59,8 @@
 /* number of tx and rx requests to allocate */
 #define TX_REQ_MAX 4
 #define RX_REQ_MAX 2
+
+bool acc_dev_status;
 
 struct acc_hid_dev {
 	struct list_head	list;
@@ -147,7 +153,7 @@ static struct usb_endpoint_descriptor acc_superspeed_in_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor acc_superspeed_in_comp_desc = {
@@ -164,7 +170,7 @@ static struct usb_endpoint_descriptor acc_superspeed_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor acc_superspeed_out_comp_desc = {
@@ -176,13 +182,12 @@ static struct usb_ss_ep_comp_descriptor acc_superspeed_out_comp_desc = {
 	/* .bmAttributes =	0, */
 };
 
-
 static struct usb_endpoint_descriptor acc_highspeed_in_desc = {
 	.bLength                = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor acc_highspeed_out_desc = {
@@ -190,7 +195,7 @@ static struct usb_endpoint_descriptor acc_highspeed_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor acc_fullspeed_in_desc = {
@@ -845,8 +850,7 @@ static long acc_ioctl(struct file *fp, unsigned code, unsigned long value)
 	case ACCESSORY_IS_START_REQUESTED:
 		return dev->start_requested;
 	case ACCESSORY_GET_AUDIO_MODE:
-		/* RID006975: Disable support for AOA v2 Audio due to Andorid CDD */
-		return 0;
+		return dev->audio_mode;
 	}
 	if (!src)
 		return -EINVAL;
@@ -958,6 +962,12 @@ int acc_ctrlrequest(struct usb_composite_dev *cdev,
 	 */
 	if (!dev)
 		return -ENODEV;
+/*
+	printk(KERN_INFO "acc_ctrlrequest "
+			"%02x.%02x v%04x i%04x l%u\n",
+			b_requestType, b_request,
+			w_value, w_index, w_length);
+*/
 
 	if (b_requestType == (USB_DIR_OUT | USB_TYPE_VENDOR)) {
 		if (b_request == ACCESSORY_START) {
@@ -1176,6 +1186,7 @@ acc_function_unbind(struct usb_configuration *c, struct usb_function *f)
 	int i;
 
 	dev->online = 0;		/* clear online flag */
+	acc_dev_status = false;
 	wake_up(&dev->read_wq);		/* unblock reads on closure */
 	wake_up(&dev->write_wq);	/* likewise for writes */
 
@@ -1192,8 +1203,11 @@ acc_function_unbind(struct usb_configuration *c, struct usb_function *f)
 static void acc_start_work(struct work_struct *data)
 {
 	char *envp[2] = { "ACCESSORY=START", NULL };
-
+	pr_info("usb: Send uevent, ACCESSORY=START\n");
 	kobject_uevent_env(&acc_device.this_device->kobj, KOBJ_CHANGE, envp);
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+ 	store_usblog_notify(NOTIFY_USBSTATE, (void *)envp[0], NULL);
+#endif
 }
 
 static int acc_hid_init(struct acc_hid_dev *hdev)
@@ -1331,6 +1345,9 @@ static void acc_function_disable(struct usb_function *f)
 
 	DBG(cdev, "acc_function_disable\n");
 	acc_set_disconnected(dev); /* this now only sets disconnected */
+	/* check accessory reset */
+	if (dev->online)
+		acc_dev_status = true;
 	dev->online = 0; /* so now need to clear online flag here too */
 	usb_ep_disable(dev->ep_in);
 	usb_ep_disable(dev->ep_out);

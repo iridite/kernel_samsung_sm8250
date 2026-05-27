@@ -350,7 +350,9 @@ int ip_ra_control(struct sock *sk, unsigned char on,
 		return -EINVAL;
 
 	new_ra = on ? kmalloc(sizeof(*new_ra), GFP_KERNEL) : NULL;
-
+	if (on && !new_ra)
+		return -ENOMEM;
+	
 	mutex_lock(&net->ipv4.ra_mutex);
 	for (rap = &net->ipv4.ra_chain;
 	     (ra = rcu_dereference_protected(*rap,
@@ -940,7 +942,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 
 		if (optlen < IP_MSFILTER_SIZE(0))
 			goto e_inval;
-		if (optlen > sysctl_optmem_max) {
+		if (optlen > READ_ONCE(sysctl_optmem_max)) {
 			err = -ENOBUFS;
 			break;
 		}
@@ -1091,7 +1093,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 
 		if (optlen < GROUP_FILTER_SIZE(0))
 			goto e_inval;
-		if (optlen > sysctl_optmem_max) {
+		if (optlen > READ_ONCE(sysctl_optmem_max)) {
 			err = -ENOBUFS;
 			break;
 		}

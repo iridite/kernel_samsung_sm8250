@@ -16,6 +16,11 @@
 #include "gsi_reg.h"
 #include "gsi_emulation.h"
 
+#ifndef MODULE
+ #undef EXPORT_SYMBOL
+ #define EXPORT_SYMBOL(x)
+#endif
+
 #define GSI_CMD_TIMEOUT (5*HZ)
 #define GSI_START_CMD_TIMEOUT_MS 1000
 #define GSI_CMD_POLL_CNT 5
@@ -31,11 +36,6 @@
 #define GSI_CHNL_STATE_MAX_RETRYCNT 10
 
 #define GSI_STTS_REG_BITS 32
-
-#ifndef MODULE
- #undef EXPORT_SYMBOL
- #define EXPORT_SYMBOL(x)
-#endif
 
 #ifndef CONFIG_DEBUG_FS
 void gsi_debugfs_init(void)
@@ -2957,7 +2957,8 @@ int gsi_stop_channel(unsigned long chan_hdl)
 
 	if (ctx->state != GSI_CHAN_STATE_STARTED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC &&
-		ctx->state != GSI_CHAN_STATE_ERROR) {
+		ctx->state != GSI_CHAN_STATE_ERROR &&
+		ctx->state != GSI_CHAN_STATE_FLOW_CONTROL) {
 		GSIERR("bad state %d\n", ctx->state);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}

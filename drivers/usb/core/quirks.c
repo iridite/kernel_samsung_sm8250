@@ -205,6 +205,10 @@ static const struct usb_device_id usb_quirk_list[] = {
 	/* HP v222w 16GB Mini USB Drive */
 	{ USB_DEVICE(0x03f0, 0x3f40), .driver_info = USB_QUIRK_DELAY_INIT },
 
+	/* Huawei 4G LTE module ME906S  */
+	{ USB_DEVICE(0x03f0, 0xa31d), .driver_info =
+			USB_QUIRK_DISCONNECT_SUSPEND },
+
 	/* Creative SB Audigy 2 NX */
 	{ USB_DEVICE(0x041e, 0x3020), .driver_info = USB_QUIRK_RESET_RESUME },
 
@@ -390,6 +394,7 @@ static const struct usb_device_id usb_quirk_list[] = {
 
 	/* Silicon Motion Flash Drive */
 	{ USB_DEVICE(0x090c, 0x1000), .driver_info = USB_QUIRK_DELAY_INIT },
+	{ USB_DEVICE(0x090c, 0x2000), .driver_info = USB_QUIRK_DELAY_INIT },
 
 	/* Sound Devices USBPre2 */
 	{ USB_DEVICE(0x0926, 0x0202), .driver_info =
@@ -473,6 +478,8 @@ static const struct usb_device_id usb_quirk_list[] = {
 	/* Razer - Razer Blade Keyboard */
 	{ USB_DEVICE(0x1532, 0x0116), .driver_info =
 			USB_QUIRK_LINEAR_UFRAME_INTR_BINTERVAL },
+	/* Razer - Razer Kiyo Pro Webcam */
+	{ USB_DEVICE(0x1532, 0x0e05), .driver_info = USB_QUIRK_NO_LPM },
 
 	/* Lenovo ThinkPad OneLink+ Dock twin hub controllers (VIA Labs VL812) */
 	{ USB_DEVICE(0x17ef, 0x1018), .driver_info = USB_QUIRK_RESET_RESUME },
@@ -763,3 +770,32 @@ void usb_release_quirk_list(void)
 	quirk_list = NULL;
 	mutex_unlock(&quirk_mutex);
 }
+
+#ifdef CONFIG_USB_INTERFACE_LPM_LIST
+static const struct usb_device_id usb_interface_list_lpm[] = {
+	{ .match_flags = USB_DEVICE_ID_MATCH_INT_CLASS,
+		.bInterfaceClass = USB_CLASS_AUDIO},
+	{ }						/* Terminating entry */
+};
+
+int usb_detect_interface_lpm(struct usb_device *udev)
+{
+	const struct usb_device_id *id = usb_interface_list_lpm;
+	int l1_enable = 0;
+	
+	for (; id->match_flags; id++) {
+		if (!usb_match_device(udev, id))
+			continue;
+
+		if ((id->match_flags & USB_DEVICE_ID_MATCH_INT_INFO) &&
+		    !usb_match_any_interface(udev, id))
+			continue;
+
+		l1_enable = 1;
+	}
+
+	pr_info("%s:Device will %s L1\n", __func__, l1_enable?"enable":"disable");
+	return l1_enable;
+}
+#endif
+

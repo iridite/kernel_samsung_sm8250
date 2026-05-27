@@ -33,6 +33,7 @@
 #include "pwrseq.h"
 #include "sdio_ops.h"
 
+#define cls_dev_to_mmc_host(d)	container_of(d, struct mmc_host, class_dev)
 
 #define MMC_DEVFRQ_DEFAULT_UP_THRESHOLD 35
 #define MMC_DEVFRQ_DEFAULT_DOWN_THRESHOLD 5
@@ -457,6 +458,11 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	INIT_DELAYED_WORK(&host->sdio_irq_work, sdio_irq_work);
 	timer_setup(&host->retune_timer, mmc_retune_timer, 0);
 
+	host->wlock_name = kasprintf(GFP_KERNEL,
+			"%s_detect", mmc_hostname(host));
+	wake_lock_init(&host->detect_wake_lock, WAKE_LOCK_SUSPEND,
+			host->wlock_name);
+
 	/*
 	 * By default, hosts do not support SGIO or large requests.
 	 * They have to set these according to their abilities.
@@ -727,6 +733,7 @@ void mmc_free_host(struct mmc_host *host)
 	cancel_delayed_work_sync(&host->detect);
 	mmc_crypto_free_host(host);
 	mmc_pwrseq_free(host);
+	wake_lock_destroy(&host->detect_wake_lock);
 	put_device(&host->class_dev);
 }
 

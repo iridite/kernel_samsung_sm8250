@@ -281,7 +281,6 @@ struct f_gsi {
 	u8 debugfs_rw_timer_enable;
 	u16 gsi_rw_timer_interval;
 	bool host_supports_flow_control;
-	bool linux_support;
 };
 
 static inline struct f_gsi *func_to_gsi(struct usb_function *f)
@@ -345,8 +344,13 @@ static struct usb_interface_descriptor rmnet_gsi_interface_desc = {
 	.bDescriptorType =	USB_DT_INTERFACE,
 	.bNumEndpoints =	3,
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	.bInterfaceSubClass =	0xE0,
+	.bInterfaceProtocol =	0x01,
+#else
 	.bInterfaceSubClass =	USB_SUBCLASS_VENDOR_SPEC,
 	.bInterfaceProtocol =	0x50,
+#endif
 	/* .iInterface = DYNAMIC */
 };
 

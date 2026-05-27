@@ -858,6 +858,11 @@ out:
 static __inline__ int neigh_max_probes(struct neighbour *n)
 {
 	struct neigh_parms *p = n->parms;
+	if (n->dev != NULL && !strcmp(n->dev->name, "aware_data0")) {
+		return (NEIGH_VAR(p, UCAST_PROBES) * 2) + NEIGH_VAR(p, APP_PROBES) +
+		       (n->nud_state & NUD_PROBE ? NEIGH_VAR(p, MCAST_REPROBES) :
+		        NEIGH_VAR(p, MCAST_PROBES));
+	}
 	return NEIGH_VAR(p, UCAST_PROBES) + NEIGH_VAR(p, APP_PROBES) +
 	       (n->nud_state & NUD_PROBE ? NEIGH_VAR(p, MCAST_REPROBES) :
 	        NEIGH_VAR(p, MCAST_PROBES));
@@ -960,6 +965,9 @@ static void neigh_timer_handler(struct timer_list *t)
 		}
 	} else {
 		/* NUD_PROBE|NUD_INCOMPLETE */
+		if (neigh->dev != NULL && !strcmp(neigh->dev->name, "aware_data0")) {
+			next = now + NEIGH_VAR(neigh->parms, RETRANS_TIME)/5;
+		} else
 		next = now + NEIGH_VAR(neigh->parms, RETRANS_TIME);
 	}
 
@@ -972,6 +980,10 @@ static void neigh_timer_handler(struct timer_list *t)
 	}
 
 	if (neigh->nud_state & NUD_IN_TIMER) {
+		if (neigh->dev != NULL && !strcmp(neigh->dev->name, "aware_data0")) {
+			if (time_before(next, jiffies + HZ/20))
+				next = jiffies + HZ/20;
+		} else
 		if (time_before(next, jiffies + HZ/2))
 			next = jiffies + HZ/2;
 		if (!mod_timer(&neigh->timer, next))
@@ -1013,6 +1025,10 @@ int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 			neigh_del_timer(neigh);
 			neigh->nud_state     = NUD_INCOMPLETE;
 			neigh->updated = now;
+			if (neigh->dev != NULL && !strcmp(neigh->dev->name, "aware_data0")) {
+				next = now + max(NEIGH_VAR(neigh->parms, RETRANS_TIME)/25,
+						 HZ/25);
+			} else
 			next = now + max(NEIGH_VAR(neigh->parms, RETRANS_TIME),
 					 HZ/2);
 			neigh_add_timer(neigh, next);
@@ -1711,7 +1727,8 @@ static int neigh_add(struct sk_buff *skb, struct nlmsghdr *nlh,
 	int err;
 
 	ASSERT_RTNL();
-	err = nlmsg_parse(nlh, sizeof(*ndm), tb, NDA_MAX, NULL, extack);
+	err = nlmsg_parse_deprecated(nlh, sizeof(*ndm), tb, NDA_MAX, NULL,
+				     extack);
 	if (err < 0)
 		goto out;
 
@@ -2000,8 +2017,8 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 	bool found = false;
 	int err, tidx;
 
-	err = nlmsg_parse(nlh, sizeof(*ndtmsg), tb, NDTA_MAX,
-			  nl_neightbl_policy, extack);
+	err = nlmsg_parse_deprecated(nlh, sizeof(*ndtmsg), tb, NDTA_MAX,
+				     nl_neightbl_policy, extack);
 	if (err < 0)
 		goto errout;
 
@@ -2038,8 +2055,9 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 		struct neigh_parms *p;
 		int i, ifindex = 0;
 
-		err = nla_parse_nested(tbp, NDTPA_MAX, tb[NDTA_PARMS],
-				       nl_ntbl_parm_policy, extack);
+		err = nla_parse_nested_deprecated(tbp, NDTPA_MAX,
+						  tb[NDTA_PARMS],
+						  nl_ntbl_parm_policy, extack);
 		if (err < 0)
 			goto errout_tbl_lock;
 
@@ -2330,7 +2348,8 @@ static int neigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 	unsigned int flags = NLM_F_MULTI;
 	int err;
 
-	err = nlmsg_parse(nlh, sizeof(struct ndmsg), tb, NDA_MAX, NULL, NULL);
+	err = nlmsg_parse_deprecated(nlh, sizeof(struct ndmsg), tb, NDA_MAX,
+				     NULL, NULL);
 	if (!err) {
 		if (tb[NDA_IFINDEX]) {
 			if (nla_len(tb[NDA_IFINDEX]) != sizeof(u32))

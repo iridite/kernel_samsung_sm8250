@@ -1720,6 +1720,10 @@ static void smb1398_status_change_work(struct work_struct *work)
 		chip->usb_present = !!pval.intval;
 		if (!chip->usb_present) /* USB has been removed */
 			smb1398_toggle_uvlo(chip);
+		pval.intval = 1;
+		if (is_cps_available(chip))
+			power_supply_set_property(chip->div2_cp_slave_psy,
+				POWER_SUPPLY_PROP_CP_TOGGLE_SWITCHER, &pval);
 	}
 
 	rc = power_supply_get_property(chip->usb_psy,
@@ -2279,6 +2283,7 @@ static enum power_supply_property div2_cp_slave_props[] = {
 	POWER_SUPPLY_PROP_CP_ENABLE,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX,
 	POWER_SUPPLY_PROP_CURRENT_CAPABILITY,
+	POWER_SUPPLY_PROP_CP_TOGGLE_SWITCHER,
 };
 
 static int div2_cp_slave_get_prop(struct power_supply *psy,
@@ -2301,6 +2306,9 @@ static int div2_cp_slave_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_CAPABILITY:
 		pval->intval = (int)chip->current_capability;
+		break;
+	case POWER_SUPPLY_PROP_CP_TOGGLE_SWITCHER:
+		pval->intval = 0;
 		break;
 	default:
 		dev_err(chip->dev, "read div2_cp_slave property %d is not supported\n",
@@ -2333,6 +2341,10 @@ static int div2_cp_slave_set_prop(struct power_supply *psy,
 		if (rc < 0)
 			return rc;
 		chip->current_capability = mode;
+		break;
+	case POWER_SUPPLY_PROP_CP_TOGGLE_SWITCHER:
+		/* use this case to toggle UVLO */
+		rc = smb1398_toggle_uvlo(chip);
 		break;
 	default:
 		dev_err(chip->dev, "write div2_cp_slave property %d is not supported\n",

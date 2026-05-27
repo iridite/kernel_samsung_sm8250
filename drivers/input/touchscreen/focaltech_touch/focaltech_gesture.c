@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *
  * FocalTech TouchScreen driver.
@@ -125,10 +126,10 @@ static ssize_t fts_gesture_store(
 	mutex_lock(&ts_data->input_dev->mutex);
 	if (FTS_SYSFS_ECHO_ON(buf)) {
 		FTS_DEBUG("enable gesture");
-		ts_data->gesture_mode = ENABLE;
+		ts_data->gesture_mode = true;
 	} else if (FTS_SYSFS_ECHO_OFF(buf)) {
 		FTS_DEBUG("disable gesture");
-		ts_data->gesture_mode = DISABLE;
+		ts_data->gesture_mode = false;
 	}
 	mutex_unlock(&ts_data->input_dev->mutex);
 
@@ -231,7 +232,7 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
 		break;
 
 	case GESTURE_DOUBLECLICK:
-		gesture = KEY_WAKEUP;
+		gesture = KEY_POWER;
 
 		break;
 
@@ -428,7 +429,7 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 	struct input_dev *input_dev = ts_data->input_dev;
 
 	FTS_FUNC_ENTER();
-	input_set_capability(input_dev, EV_KEY, KEY_WAKEUP);
+	input_set_capability(input_dev, EV_KEY, KEY_POWER);
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_U);
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_UP);
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_DOWN);
@@ -462,7 +463,12 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 	fts_create_gesture_sysfs(ts_data->dev);
 
 	memset(&fts_gesture_data, 0, sizeof(struct fts_gesture_st));
-	ts_data->gesture_mode = FTS_GESTURE_EN;
+
+#if FTS_GESTURE_EN
+	ts_data->gesture_mode = true;
+#else
+	ts_data->gesture_mode = false;
+#endif
 
 	FTS_FUNC_EXIT();
 	return 0;

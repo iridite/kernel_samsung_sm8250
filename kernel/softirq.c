@@ -29,6 +29,7 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
+#include <linux/sec_debug.h>
 
 /*
    - No shared variables, all the data are CPU local.
@@ -82,21 +83,6 @@ static void wakeup_softirqd(void)
 
 	if (tsk && tsk->state != TASK_RUNNING)
 		wake_up_process(tsk);
-}
-
-/*
- * If ksoftirqd is scheduled, we do not want to process pending softirqs
- * right now. Let ksoftirqd handle this at its own rate, to get fairness,
- * unless we're doing some of the synchronous softirqs.
- */
-#define SOFTIRQ_NOW_MASK ((1<<HI_SOFTIRQ)|(1<<TASKLET_SOFTIRQ))
-static bool should_defer_to_ksoftirqd(unsigned long pending)
-{
-	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
-
-	if (pending & SOFTIRQ_NOW_MASK)
-		return false;
-	return tsk && (tsk->state == TASK_RUNNING);
 }
 
 /*
@@ -308,7 +294,10 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
+
+		sec_debug_irq_sched_log(vec_nr, h->action, "softirq", SOFTIRQ_ENTRY);
 		h->action(h);
+		sec_debug_irq_sched_log(vec_nr, h->action, "softirq", SOFTIRQ_EXIT);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
@@ -356,7 +345,7 @@ asmlinkage __visible void do_softirq(void)
 
 	pending = local_softirq_pending();
 
-	if (pending && !should_defer_to_ksoftirqd(pending))
+	if (pending)
 		do_softirq_own_stack();
 
 	local_irq_restore(flags);
@@ -383,9 +372,6 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (should_defer_to_ksoftirqd(local_softirq_pending()))
-		return;
-
 	if (!force_irqthreads) {
 #ifdef CONFIG_HAVE_IRQ_EXIT_ON_IRQ_STACK
 		/*
@@ -438,6 +424,7 @@ void irq_exit(void)
 	tick_irq_exit();
 	rcu_irq_exit();
 	trace_hardirq_exit(); /* must be last! */
+	sec_debug_msg_log("hardirq exit");
 }
 
 /*
@@ -543,9 +530,12 @@ static void tasklet_action_common(struct softirq_action *a,
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
+				sec_debug_irq_sched_log(-1, t->func, "tasklet_action", SOFTIRQ_ENTRY);
 				trace_tasklet_entry(t->func);
 				t->func(t->data);
 				trace_tasklet_exit(t->func);
+				sec_debug_irq_sched_log(-1, t->func, "tasklet_action", SOFTIRQ_EXIT);
+
 				tasklet_unlock(t);
 				continue;
 			}

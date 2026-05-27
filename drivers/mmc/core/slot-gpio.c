@@ -18,7 +18,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/extcon.h>
-#include <linux/sony_ext_uim_ctrl.h>
+
 #include "slot-gpio.h"
 
 struct mmc_gpio {
@@ -26,52 +26,28 @@ struct mmc_gpio {
 	struct gpio_desc *cd_gpio;
 	bool override_ro_active_level;
 	bool override_cd_active_level;
-	irqreturn_t (*cd_gpio_isr)(int irq, void *dev_id);
 	bool status;
+	irqreturn_t (*cd_gpio_isr)(int irq, void *dev_id);
 	char *ro_label;
 	u32 cd_debounce_delay_ms;
 	char cd_label[];
 };
-
-int mmc_gpio_get_status(struct mmc_host *host)
-{
-	int ret = -ENOSYS;
-	struct mmc_gpio *ctx = host->slot.handler_priv;
-
-	if (!ctx || !gpio_is_valid(desc_to_gpio(ctx->cd_gpio)))
-		goto out;
-
-	ret = !gpio_get_value_cansleep(desc_to_gpio(ctx->cd_gpio)) ^
-		!!(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH);
-out:
-	return ret;
-}
 
 static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {
 	/* Schedule a card detection after a debounce timeout */
 	struct mmc_host *host = dev_id;
 	struct mmc_gpio *ctx = host->slot.handler_priv;
-	int status;
 	int present = host->ops->get_cd(host);
+	bool status;
 
 	pr_debug("%s: cd gpio irq, gpio state %d (CARD_%s)\n",
 		mmc_hostname(host), present, present?"INSERT":"REMOVAL");
 
-	if (!host->ops)
-		goto out;
-
-	status = mmc_gpio_get_status(host);
-	if (unlikely(status < 0))
-		goto out;
-
-#ifdef CONFIG_SONY_EXT_UIM_CTRL
-	if (status == 0)
-		sony_ext_uim_ctrl_set_uim2_detect_en(0);
-#endif /* CONFIG_SONY_EXT_UIM_CTRL */
+	status = mmc_gpio_get_cd(host) ? true : false;
 
 	if (status ^ ctx->status) {
-		pr_info("%s: slot status change detected (%d -> %d), GPIO_ACTIVE_%s\n",
+		pr_err("%s: slot status change detected (%d -> %d), GPIO_ACTIVE_%s\n",
 				mmc_hostname(host), ctx->status, status,
 				(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH) ?
 				"HIGH" : "LOW");
@@ -79,10 +55,11 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 
 		host->trigger_card_event = true;
 
-		/* Schedule a card detection after a debounce timeout */
+		if (host->card_detect_cnt < 0x7FFFFFFF)
+			host->card_detect_cnt++;
+
 		mmc_detect_change(host, msecs_to_jiffies(ctx->cd_debounce_delay_ms));
 	}
-out:
 
 	return IRQ_HANDLED;
 }
@@ -196,11 +173,12 @@ void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 	if (!(host->caps & MMC_CAP_NEEDS_POLL))
 		irq = gpiod_to_irq(ctx->cd_gpio);
 
-	ret = mmc_gpio_get_status(host);
-	if (ret < 0)
-		pr_warn("%s: failed to init cd_gpio status\n", mmc_hostname(host));
-	else
-		ctx->status = ret;
+	ret = mmc_gpio_get_cd(host);
+	if (ret < 0) {
+		pr_err("%s: getting card detection gpio is failed.\n", mmc_hostname(host));
+		return;
+	}
+	ctx->status = ret ? true : false;
 
 	if (irq >= 0) {
 		if (!ctx->cd_gpio_isr)
@@ -230,9 +208,25 @@ static int mmc_card_detect_notifier(struct notifier_block *nb,
 {
 	struct mmc_host *host = container_of(nb, struct mmc_host,
 					     card_detect_nb);
+	struct mmc_gpio *ctx = host->slot.handler_priv;
+	bool status;
 
-	host->trigger_card_event = true;
-	mmc_detect_change(host, 0);
+	status = mmc_gpio_get_cd(host) ? true : false;
+
+	if (status ^ ctx->status) {
+		pr_err("%s: extcon : slot status change detected (%d -> %d), GPIO_ACTIVE_%s\n",
+				mmc_hostname(host), ctx->status, status,
+				(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH) ?
+				"HIGH" : "LOW");
+		ctx->status = status;
+
+		host->trigger_card_event = true;
+
+		if (host->card_detect_cnt < 0x7FFFFFFF)
+			host->card_detect_cnt++;
+
+		mmc_detect_change(host, 0);
+	}
 
 	return NOTIFY_DONE;
 }
@@ -241,6 +235,7 @@ void mmc_register_extcon(struct mmc_host *host)
 {
 	struct extcon_dev *extcon = host->extcon;
 	int err;
+	struct mmc_gpio *ctx = host->slot.handler_priv;
 
 	if (!extcon)
 		return;
@@ -252,7 +247,16 @@ void mmc_register_extcon(struct mmc_host *host)
 		dev_err(mmc_dev(host), "%s: extcon_register_notifier() failed ret=%d\n",
 			__func__, err);
 		host->caps |= MMC_CAP_NEEDS_POLL;
+		return;
 	}
+
+	err = mmc_gpio_get_cd(host);
+	if (err < 0) {
+		pr_err("%s: getting card detection extcon is failed.\n", mmc_hostname(host));
+		return;
+	}
+	ctx->status = err ? true : false;
+
 }
 EXPORT_SYMBOL(mmc_register_extcon);
 
@@ -453,13 +457,3 @@ bool mmc_can_gpio_ro(struct mmc_host *host)
 	return ctx->ro_gpio ? true : false;
 }
 EXPORT_SYMBOL(mmc_can_gpio_ro);
-
-void mmc_gpio_tray_close_set_uim2(struct mmc_host *host, int value)
-{
-	struct mmc_gpio *ctx = host->slot.handler_priv;
-
-	if (ctx && ctx->status)
-		sony_ext_uim_ctrl_set_uim2_detect_en(value);
-
-}
-EXPORT_SYMBOL(mmc_gpio_tray_close_set_uim2);

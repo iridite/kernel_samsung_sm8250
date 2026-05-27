@@ -147,6 +147,13 @@ static struct page_info *alloc_largest_available(struct ion_system_heap *heap,
 			continue;
 		if (max_order < orders[i])
 			continue;
+
+#ifdef CONFIG_HUGEPAGE_POOL
+		if (orders[i] == HUGEPAGE_ORDER &&
+		    !is_hugepage_allowed(current, orders[i], true, HPAGE_ION))
+			continue;
+#endif
+
 		from_pool = !(buffer->flags & ION_FLAG_POOL_FORCE_ALLOC);
 		page = alloc_buffer_page(heap, buffer, orders[i], &from_pool);
 		if (IS_ERR(page))
@@ -246,7 +253,15 @@ static int ion_heap_alloc_pages_mem(struct pages_mem *pages_mem)
 
 	page_tbl_size = sizeof(struct page *) * (pages_mem->size >> PAGE_SHIFT);
 	if (page_tbl_size > SZ_8K) {
-		pages = vmalloc(page_tbl_size);
+		/*
+		 * Do fallback to ensure we have a balance between
+		 * performance and availability.
+		 */
+		pages = kmalloc(page_tbl_size,
+				__GFP_COMP | __GFP_NORETRY |
+				__GFP_NOWARN);
+		if (!pages)
+			pages = vmalloc(page_tbl_size);
 	} else {
 		pages = kmalloc(page_tbl_size, GFP_KERNEL);
 	}
@@ -611,6 +626,65 @@ static int ion_system_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 	return 0;
 }
 
+static struct ion_system_heap *system_heap;
+
+unsigned int get_ion_system_heap_id(void)
+{
+	if (system_heap)
+		return system_heap->heap.id;
+	return -ENODEV;
+}
+
+static void show_ion_system_heap_pool_size(struct seq_file *s)
+{
+	unsigned long uncached_total = 0;
+	unsigned long cached_total = 0;
+	unsigned long secure_total = 0;
+	struct ion_page_pool *pool;
+	int i, j;
+
+	if (!system_heap) {
+		pr_err("system_heap_pool is not ready\n");
+		return;
+	}
+
+	for (i = 0; i < NUM_ORDERS; i++) {
+		pool = system_heap->uncached_pools[i];
+		uncached_total += (1 << pool->order) * PAGE_SIZE *
+			pool->high_count;
+		uncached_total += (1 << pool->order) * PAGE_SIZE *
+			pool->low_count;
+	}
+
+	for (i = 0; i < NUM_ORDERS; i++) {
+		pool = system_heap->cached_pools[i];
+		cached_total += (1 << pool->order) * PAGE_SIZE *
+			pool->high_count;
+		cached_total += (1 << pool->order) * PAGE_SIZE *
+			pool->low_count;
+	}
+
+	for (i = 0; i < NUM_ORDERS; i++) {
+		for (j = 0; j < VMID_LAST; j++) {
+			if (!is_secure_vmid_valid(j))
+				continue;
+			pool = system_heap->secure_pools[j][i];
+			secure_total += (1 << pool->order) * PAGE_SIZE *
+					 pool->high_count;
+			secure_total += (1 << pool->order) * PAGE_SIZE *
+					 pool->low_count;
+		}
+	}
+
+	if (s)
+		seq_printf(s, "SystemHeapPool: %8lu kB\n",
+			   (uncached_total + cached_total + secure_total)
+			   >> 10);
+	else
+		pr_cont("SystemHeapPool:%lukB ",
+			(uncached_total + cached_total + secure_total) >> 10);
+}
+
 static void ion_system_heap_destroy_pools(struct ion_page_pool **pools)
 {
 	int i;
@@ -631,7 +705,7 @@ static void ion_system_heap_destroy_pools(struct ion_page_pool **pools)
  */
 static int ion_system_heap_create_pools(struct ion_system_heap *sys_heap,
 					struct ion_page_pool **pools,
-					bool cached, bool movable)
+					bool cached)
 {
 	int i;
 
@@ -641,8 +715,7 @@ static int ion_system_heap_create_pools(struct ion_system_heap *sys_heap,
 
 		if (orders[i])
 			gfp_flags = high_order_gfp_flags;
-		pool = ion_page_pool_create(gfp_flags, orders[i], cached,
-					movable);
+		pool = ion_page_pool_create(gfp_flags, orders[i], cached);
 		if (!pool)
 			goto err_create_pool;
 		pool->dev = sys_heap->heap.priv;
@@ -706,6 +779,46 @@ static struct task_struct *ion_create_kworker(struct ion_page_pool **pools,
 	return thread;
 }
 
+void show_ion_system_heap_size(struct seq_file *s)
+{
+	struct ion_heap *heap;
+	unsigned long system_byte = 0;
+
+	if (!system_heap) {
+		pr_err("system_heap is not ready\n");
+		return;
+	}
+
+	heap = &system_heap->heap;
+	system_byte = (unsigned long)atomic_long_read(&heap->total_allocated);
+	if (s)
+		seq_printf(s, "SystemHeap:     %8lu kB\n", system_byte >> 10);
+	else
+		pr_cont("SystemHeap:%lukB ", system_byte >> 10);
+}
+
+static int ion_system_heap_size_notifier(struct notifier_block *nb,
+					 unsigned long action, void *data)
+{
+	show_ion_system_heap_size((struct seq_file *)data);
+	return 0;
+}
+
+static struct notifier_block ion_system_heap_nb = {
+	.notifier_call = ion_system_heap_size_notifier,
+};
+
+static int ion_system_heap_pool_size_notifier(struct notifier_block *nb,
+					      unsigned long action, void *data)
+{
+	show_ion_system_heap_pool_size((struct seq_file *)data);
+	return 0;
+}
+
+static struct notifier_block ion_system_heap_pool_nb = {
+	.notifier_call = ion_system_heap_pool_size_notifier,
+};
+
 struct ion_heap *ion_system_heap_create(struct ion_platform_heap *data)
 {
 	struct ion_system_heap *heap;
@@ -724,13 +837,13 @@ struct ion_heap *ion_system_heap_create(struct ion_platform_heap *data)
 		if (is_secure_vmid_valid(i))
 			if (ion_system_heap_create_pools(heap,
 							 heap->secure_pools[i],
-							 false, false))
+							 false))
 				goto destroy_secure_pools;
 
-	if (ion_system_heap_create_pools(heap, heap->uncached_pools, false, false))
+	if (ion_system_heap_create_pools(heap, heap->uncached_pools, false))
 		goto destroy_secure_pools;
 
-	if (ion_system_heap_create_pools(heap, heap->cached_pools, true, true))
+	if (ion_system_heap_create_pools(heap, heap->cached_pools, true))
 		goto destroy_uncached_pools;
 
 	if (pool_auto_refill_en) {
@@ -752,6 +865,13 @@ struct ion_heap *ion_system_heap_create(struct ion_platform_heap *data)
 	mutex_init(&heap->split_page_mutex);
 
 	heap->heap.debug_show = ion_system_heap_debug_show;
+	if (!system_heap) {
+		system_heap = heap;
+		show_mem_extra_notifier_register(&ion_system_heap_nb);
+		show_mem_extra_notifier_register(&ion_system_heap_pool_nb);
+	} else {
+		pr_err("system_heap had been already created\n");
+	}
 	return &heap->heap;
 destroy_pools:
 	ion_system_heap_destroy_pools(heap->cached_pools);

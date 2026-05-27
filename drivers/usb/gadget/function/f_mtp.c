@@ -71,16 +71,11 @@
 #define STATE_BUSY                  2   /* processing userspace calls */
 #define STATE_CANCELED              3   /* transaction canceled by host */
 #define STATE_ERROR                 4   /* error from completion routine */
-#define STATE_RESET                 5   /* reset the device */
 
 /* number of tx and rx requests to allocate */
 #define MTP_TX_REQ_MAX 8
 #define RX_REQ_MAX 2
 #define INTR_REQ_MAX 5
-
-/* vendor code */
-#define MSOS_VENDOR_CODE	0x08
-#define MSOS_GOOGLE_VENDOR_CODE	0x01
 
 /* ID for Microsoft MTP OS String */
 #define MTP_OS_STRING_ID   0xEE
@@ -185,7 +180,7 @@ static struct usb_endpoint_descriptor mtp_ss_in_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor mtp_ss_in_comp_desc = {
@@ -199,7 +194,7 @@ static struct usb_endpoint_descriptor mtp_ss_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor mtp_ss_out_comp_desc = {
@@ -213,7 +208,7 @@ static struct usb_endpoint_descriptor mtp_highspeed_in_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor mtp_highspeed_out_desc = {
@@ -221,7 +216,7 @@ static struct usb_endpoint_descriptor mtp_highspeed_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor mtp_fullspeed_in_desc = {
@@ -243,7 +238,7 @@ static struct usb_endpoint_descriptor mtp_intr_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize         = cpu_to_le16(INTR_BUFFER_SIZE),
+	.wMaxPacketSize         = __constant_cpu_to_le16(INTR_BUFFER_SIZE),
 	.bInterval              = 6,
 };
 
@@ -330,7 +325,7 @@ static u8 mtp_os_string[] = {
 	/* Signature field: "MSFT100" */
 	'M', 0, 'S', 0, 'F', 0, 'T', 0, '1', 0, '0', 0, '0', 0,
 	/* vendor code */
-	MSOS_GOOGLE_VENDOR_CODE,
+	1,
 	/* padding */
 	0
 };
@@ -355,8 +350,22 @@ struct mtp_ext_config_desc_function {
 
 /* MTP Extended Configuration Descriptor */
 struct mtp_ext_config_desc {
-	struct mtp_ext_config_desc_header       header;
+	struct mtp_ext_config_desc_header	header;
 	struct mtp_ext_config_desc_function    function;
+};
+
+static struct mtp_ext_config_desc mtp_ext_config_desc = {
+	.header = {
+		.dwLength = __constant_cpu_to_le32(sizeof(mtp_ext_config_desc)),
+		.bcdVersion = __constant_cpu_to_le16(0x0100),
+		.wIndex = __constant_cpu_to_le16(4),
+		.bCount = 1,
+	},
+	.function = {
+		.bFirstInterfaceNumber = 0,
+		.bInterfaceCount = 1,
+		.compatibleID = { 'M', 'T', 'P' },
+	},
 };
 
 struct mtp_device_status {
@@ -477,7 +486,7 @@ static void mtp_complete_out(struct usb_ep *ep, struct usb_request *req)
 	struct mtp_dev *dev = _mtp_dev;
 
 	dev->rx_done = 1;
-	if (req->status != 0 && dev->state != STATE_OFFLINE && dev->state != STATE_BUSY)
+	if (req->status != 0 && dev->state != STATE_OFFLINE)
 		dev->state = STATE_ERROR;
 
 	wake_up(&dev->read_wq);
@@ -636,12 +645,6 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 		dev->state = STATE_READY;
 		spin_unlock_irq(&dev->lock);
 		return -ECANCELED;
-	} else if (dev->state == STATE_RESET) {
-		/* report a reset state to userspace */
-		dev->state = STATE_READY;
-		spin_unlock_irq(&dev->lock);
-		mtp_log("mtp_read DEVICE RESET. State: %d.\n", dev->state);
-		return -ECONNRESET;
 	}
 	dev->state = STATE_BUSY;
 	spin_unlock_irq(&dev->lock);
@@ -676,8 +679,7 @@ requeue_req:
 		spin_unlock_irq(&dev->lock);
 		goto done;
 	}
-
-	if (ret < 0 || !dev->rx_done) {
+	if (ret < 0) {
 		r = ret;
 		usb_ep_dequeue(dev->ep_out, req);
 		goto done;
@@ -701,8 +703,6 @@ wait_err:
 	spin_lock_irq(&dev->lock);
 	if (dev->state == STATE_CANCELED)
 		r = -ECANCELED;
-	else if (dev->state == STATE_RESET)
-		r = -ECONNRESET;
 	else if (dev->state != STATE_OFFLINE)
 		dev->state = STATE_READY;
 	spin_unlock_irq(&dev->lock);
@@ -1013,22 +1013,6 @@ static void receive_file_work(struct work_struct *data)
 					usb_ep_dequeue(dev->ep_out, read_req);
 				break;
 			}
-			if (dev->state == STATE_OFFLINE) {
-				r = -ENODEV;
-				if (!dev->rx_done)
-					usb_ep_dequeue(dev->ep_out, read_req);
-				break;
-			}
-			if (dev->state == STATE_RESET) {
-				mtp_log("%s: DEVICE RESET\n", __func__);
-				r = -ECONNRESET;
-				if (!dev->rx_done) {
-					mtp_log("dequeue in DEVICE RESET\n");
-					usb_ep_dequeue(dev->ep_out, read_req);
-				}
-				break;
-			}
-
 			if (read_req->status) {
 				r = read_req->status;
 				break;
@@ -1116,14 +1100,6 @@ static long mtp_send_receive_ioctl(struct file *fp, unsigned int code,
 		ret = -ECANCELED;
 		goto out;
 	}
-	if (dev->state == STATE_RESET) {
-		/* report reset to userspace */
-		mtp_log("report reset to user space\n");
-		dev->state = STATE_READY;
-		spin_unlock_irq(&dev->lock);
-		ret = -ECONNRESET;
-		goto out;
-	}
 	if (dev->state == STATE_OFFLINE) {
 		spin_unlock_irq(&dev->lock);
 		ret = -ENODEV;
@@ -1162,21 +1138,22 @@ static long mtp_send_receive_ioctl(struct file *fp, unsigned int code,
 	 * in kernel context, which is necessary for vfs_read and
 	 * vfs_write to use our buffers in the kernel address space.
 	 */
-	queue_work(dev->wq, work);
-	/* wait for operation to complete */
-	flush_workqueue(dev->wq);
-	fput(filp);
+	dev->xfer_result = 0;
+	if (dev->xfer_file_length) {
+		queue_work(dev->wq, work);
+		/* wait for operation to complete */
+		flush_workqueue(dev->wq);
 
-	/* read the result */
-	smp_rmb();
+		/* read the result */
+		smp_rmb();
+	}
 	ret = dev->xfer_result;
+	fput(filp);
 
 fail:
 	spin_lock_irq(&dev->lock);
 	if (dev->state == STATE_CANCELED)
 		ret = -ECANCELED;
-	else if (dev->state == STATE_RESET)
-		ret = -ECONNRESET;
 	else if (dev->state != STATE_OFFLINE)
 		dev->state = STATE_READY;
 	spin_unlock_irq(&dev->lock);
@@ -1364,63 +1341,21 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 		mtp_log("vendor request: %d index: %d value: %d length: %d\n",
 			ctrl->bRequest, w_index, w_value, w_length);
 
-		if (((ctrl->bRequest == MSOS_GOOGLE_VENDOR_CODE) ||
-			(ctrl->bRequest == MSOS_VENDOR_CODE)) &&
-			(ctrl->bRequestType & USB_DIR_IN) && (w_index == 4)) {
+		if (ctrl->bRequest == 1
+				&& (ctrl->bRequestType & USB_DIR_IN)
+				&& (w_index == 4 || w_index == 5)) {
+			value = (w_length < sizeof(mtp_ext_config_desc) ?
+					w_length : sizeof(mtp_ext_config_desc));
+			memcpy(cdev->req->buf, &mtp_ext_config_desc, value);
 
-			int total = 0;
-			int func_num = 0;
-			int interface_num = 0;
-			struct mtp_ext_config_desc_header *head;
-			struct mtp_ext_config_desc_function *func;
-			struct usb_configuration        *cfg;
-			struct usb_function *f;
+			/* update compatibleID if PTP */
+			if (dev->function.fs_descriptors == fs_ptp_descs) {
+				struct mtp_ext_config_desc *d = cdev->req->buf;
 
-			head = (struct mtp_ext_config_desc_header *)
-				cdev->req->buf;
-			func = (struct mtp_ext_config_desc_function *)
-				(head + 1);
-
-			/* zero clear */
-			memset(cdev->req->buf, 0x00, USB_COMP_EP0_BUFSIZ);
-
-			list_for_each_entry(cfg, &cdev->configs, list) {
-
-				list_for_each_entry(f, &cfg->functions, list) {
-					if (!f)
-						break;
-
-					interface_num++;
-					func->bFirstInterfaceNumber = func_num;
-					func->bInterfaceCount = 1;
-					if (!strncmp(f->name, "mtp", 3)) {
-						memcpy(func->compatibleID,
-							"MTP", 3);
-						mtp_log("MTP interface found. Interface_num: %d.\n",
-							interface_num);
-					}
-					func++;
-					func_num++;
-				}
+				d->function.compatibleID[0] = 'P';
 			}
-
-			total = sizeof(*head) + (sizeof(*func) * func_num);
-
-			/* header section */
-			if (w_length < total &&
-				w_length >= (sizeof(*head) + sizeof(*func))) {
-				total = w_length;
-				func_num = (total - sizeof(*head)) /
-					sizeof(*func);
-			}
-			head->dwLength = total;
-			head->bcdVersion = cpu_to_le16(0x0100);
-			head->wIndex = cpu_to_le16(4);
-			head->bCount = func_num;
-			value = min_t(u16, w_length, total);
 		}
-	}
-	if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
+	} else if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
 		mtp_log("class request: %d index: %d value: %d length: %d\n",
 			ctrl->bRequest, w_index, w_value, w_length);
 
@@ -1434,23 +1369,6 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 				wake_up(&dev->read_wq);
 				wake_up(&dev->write_wq);
 			}
-			spin_unlock_irqrestore(&dev->lock, flags);
-
-			/* We need to queue a request to read the remaining
-			 *  bytes, but we don't actually need to look at
-			 * the contents.
-			 */
-			value = w_length;
-		} else if (ctrl->bRequest == MTP_REQ_RESET && w_index == 0
-			&& w_value == 0) {
-			mtp_log("MTP_REQ_RESET\n");
-
-			spin_lock_irqsave(&dev->lock, flags);
-			/* Flushing the buffers as mentioned in MTP spec */
-			usb_ep_fifo_flush(dev->ep_out);
-			dev->state = STATE_RESET;
-			wake_up(&dev->read_wq);
-			wake_up(&dev->write_wq);
 			spin_unlock_irqrestore(&dev->lock, flags);
 
 			/* We need to queue a request to read the remaining
@@ -1473,9 +1391,6 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 			if (dev->state == STATE_CANCELED)
 				status->wCode =
 					__cpu_to_le16(MTP_RESPONSE_DEVICE_BUSY);
-			else if (dev->state == STATE_RESET)
-				status->wCode =
-					__cpu_to_le16(MTP_RESPONSE_OK);
 			else
 				status->wCode =
 					__cpu_to_le16(MTP_RESPONSE_OK);
@@ -2000,7 +1915,11 @@ struct usb_function *function_alloc_mtp_ptp(struct usb_function_instance *fi,
 	dev->function.unbind = mtp_function_unbind;
 	dev->function.set_alt = mtp_function_set_alt;
 	dev->function.disable = mtp_function_disable;
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	dev->function.ctrlrequest = mtp_ctrlreq_configfs;
+#else
 	dev->function.setup = mtp_ctrlreq_configfs;
+#endif
 	dev->function.free_func = mtp_free;
 	fi->f = &dev->function;
 

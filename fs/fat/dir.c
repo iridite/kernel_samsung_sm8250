@@ -498,13 +498,6 @@ parse_record:
 				goto end_of_dir;
 		}
 
-		/*
-		 * The FAT_NO_83NAME flag is used to mark files
-		 * created with no 8.3 short name
-		 */
-		if (de->lcase & FAT_NO_83NAME)
-			goto compare_longname;
-
 		/* Never prepend '.' to hidden files here.
 		 * That is done only for msdos mounts (and only when
 		 * 'dotsOK=yes'); if we are executing here, it is in the
@@ -518,7 +511,6 @@ parse_record:
 		if (fat_name_match(sbi, name, name_len, bufname, len))
 			goto found;
 
-compare_longname:
 		if (nr_slots) {
 			void *longname = unicode + FAT_MAX_UNI_CHARS;
 			int size = PATH_MAX - FAT_MAX_UNI_SIZE;
@@ -610,8 +602,6 @@ parse_record:
 		if (de->attr != ATTR_EXT && IS_FREE(de->name))
 			goto record_end;
 	} else {
-		if (de->lcase & FAT_NO_83NAME)
-			goto record_end;
 		if ((de->attr & ATTR_VOLUME) || IS_FREE(de->name))
 			goto record_end;
 	}
@@ -970,10 +960,6 @@ int fat_scan(struct inode *dir, const unsigned char *name,
 	sinfo->bh = NULL;
 	while (fat_get_short_entry(dir, &sinfo->slot_off, &sinfo->bh,
 				   &sinfo->de) >= 0) {
-		/* skip files marked as having no 8.3 short name  */
-		if (sinfo->de->lcase & FAT_NO_83NAME)
-			continue;
-
 		if (!strncmp(sinfo->de->name, name, MSDOS_NAME)) {
 			sinfo->slot_off -= sizeof(*sinfo->de);
 			sinfo->nr_slots = 1;
@@ -1029,7 +1015,7 @@ static int __fat_remove_entries(struct inode *dir, loff_t pos, int nr_slots)
 			de++;
 			nr_slots--;
 		}
-		mark_buffer_dirty_inode(bh, dir);
+		mark_buffer_dirty_inode_sync(bh, dir);
 		if (IS_DIRSYNC(dir))
 			err = sync_dirty_buffer(bh);
 		brelse(bh);
@@ -1064,7 +1050,7 @@ int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
 		de--;
 		nr_slots--;
 	}
-	mark_buffer_dirty_inode(bh, dir);
+	mark_buffer_dirty_inode_sync(bh, dir);
 	if (IS_DIRSYNC(dir))
 		err = sync_dirty_buffer(bh);
 	brelse(bh);
@@ -1116,7 +1102,7 @@ static int fat_zeroed_cluster(struct inode *dir, sector_t blknr, int nr_used,
 		memset(bhs[n]->b_data, 0, sb->s_blocksize);
 		set_buffer_uptodate(bhs[n]);
 		unlock_buffer(bhs[n]);
-		mark_buffer_dirty_inode(bhs[n], dir);
+		mark_buffer_dirty_inode_sync(bhs[n], dir);
 
 		n++;
 		blknr++;
@@ -1197,7 +1183,7 @@ int fat_alloc_new_dir(struct inode *dir, struct timespec64 *ts)
 	memset(de + 2, 0, sb->s_blocksize - 2 * sizeof(*de));
 	set_buffer_uptodate(bhs[0]);
 	unlock_buffer(bhs[0]);
-	mark_buffer_dirty_inode(bhs[0], dir);
+	mark_buffer_dirty_inode_sync(bhs[0], dir);
 
 	err = fat_zeroed_cluster(dir, blknr, 1, bhs, MAX_BUF_PER_PAGE);
 	if (err)
@@ -1259,7 +1245,7 @@ static int fat_add_new_entries(struct inode *dir, void *slots, int nr_slots,
 			memcpy(bhs[n]->b_data, slots, copy);
 			set_buffer_uptodate(bhs[n]);
 			unlock_buffer(bhs[n]);
-			mark_buffer_dirty_inode(bhs[n], dir);
+			mark_buffer_dirty_inode_sync(bhs[n], dir);
 			slots += copy;
 			size -= copy;
 			if (!size)
@@ -1361,7 +1347,7 @@ found:
 		for (i = 0; i < long_bhs; i++) {
 			int copy = min_t(int, sb->s_blocksize - offset, size);
 			memcpy(bhs[i]->b_data + offset, slots, copy);
-			mark_buffer_dirty_inode(bhs[i], dir);
+			mark_buffer_dirty_inode_sync(bhs[i], dir);
 			offset = 0;
 			slots += copy;
 			size -= copy;
@@ -1372,7 +1358,7 @@ found:
 			/* Fill the short name slot. */
 			int copy = min_t(int, sb->s_blocksize - offset, size);
 			memcpy(bhs[i]->b_data + offset, slots, copy);
-			mark_buffer_dirty_inode(bhs[i], dir);
+			mark_buffer_dirty_inode_sync(bhs[i], dir);
 			if (IS_DIRSYNC(dir))
 				err = sync_dirty_buffer(bhs[i]);
 		}

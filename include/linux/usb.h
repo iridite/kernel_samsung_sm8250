@@ -1827,8 +1827,9 @@ extern int usb_control_msg(struct usb_device *dev, unsigned int pipe,
 extern int usb_interrupt_msg(struct usb_device *usb_dev, unsigned int pipe,
 	void *data, int len, int *actual_length, int timeout);
 extern int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
-	void *data, int len, int *actual_length,
-	int timeout);
+	void *data, int len, int *actual_length, int timeout);
+extern int usb_bulk_msg_killable(struct usb_device *usb_dev, unsigned int pipe,
+	void *data, int len, int *actual_length, int timeout);
 
 /* wrappers around usb_control_msg() for the most common standard requests */
 extern int usb_get_descriptor(struct usb_device *dev, unsigned char desctype,
@@ -2048,6 +2049,19 @@ enum usb_led_event {
 	USB_LED_EVENT_HOST = 0,
 	USB_LED_EVENT_GADGET = 1,
 };
+
+#if IS_ENABLED(CONFIG_USB_HOST_CERTIFICATION)
+/* USB certification */
+enum usb_host_certi_type {
+	USB_HOST_CERTI_UNSUPPORT_ACCESSORY,
+	USB_HOST_CERTI_NO_RESPONSE,
+	USB_HOST_CERTI_HUB_DEPTH_EXCEED,
+	USB_HOST_CERTI_HUB_POWER_EXCEED,
+	USB_HOST_CERTI_HOST_RESOURCE_EXCEED,
+	USB_HOST_CERTI_WARM_RESET
+};
+extern void send_usb_host_certi_uevent(struct device *dev, int usb_certi);
+#endif
 
 #ifdef CONFIG_USB_LED_TRIG
 extern void usb_led_activity(enum usb_led_event ev);

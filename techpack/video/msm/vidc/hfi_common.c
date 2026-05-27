@@ -2065,6 +2065,12 @@ static int venus_hfi_core_init(void *device)
 	rc = call_venus_op(dev, boot_firmware, dev, DEFAULT_SID);
 	if (rc) {
 		d_vpr_e("Failed to start core\n");
+
+// Add kernel panic to detect venus f/w booting fail issue (P200303-00945) 
+#ifdef CONFIG_SEC_FACTORY
+		panic("[vidc] venus f/w booting fail issue : Failed to start core\n");
+#endif
+
 		rc = -ENODEV;
 		goto err_core_init;
 	}
@@ -2143,6 +2149,34 @@ static int venus_hfi_core_release(void *dev)
 	d_vpr_h("Core released successfully\n");
 	mutex_unlock(&device->lock);
 
+	return rc;
+}
+
+static int venus_hfi_core_ping(void *device, u32 sid)
+{
+	struct hfi_cmd_sys_ping_packet pkt;
+	int rc = 0;
+	struct venus_hfi_device *dev;
+
+	if (!device) {
+		d_vpr_e("invalid device\n");
+		return -ENODEV;
+	}
+
+	dev = device;
+	mutex_lock(&dev->lock);
+
+	rc = call_hfi_pkt_op(dev, sys_ping, &pkt, sid);
+	if (rc) {
+		d_vpr_e("core_ping: failed to create packet\n");
+		goto err_create_pkt;
+	}
+
+	if (__iface_cmdq_write(dev, &pkt, sid))
+		rc = -ENOTEMPTY;
+
+err_create_pkt:
+	mutex_unlock(&dev->lock);
 	return rc;
 }
 
@@ -2898,15 +2932,6 @@ static int __check_core_registered(struct hal_device_data core,
 	return -EINVAL;
 }
 
-static void venus_hfi_crash_reason(struct hfi_sfr_struct *vsfr)
-{
-	char msg[SUBSYS_CRASH_REASON_LEN];
-
-	snprintf(msg, sizeof(msg), "SFR Message from FW : %s",
-						vsfr->rg_data);
-	subsystem_crash_reason("venus", msg);
-}
-
 static void __process_fatal_error(
 		struct venus_hfi_device *device)
 {
@@ -2940,7 +2965,6 @@ static void venus_hfi_pm_handler(struct work_struct *work)
 	int rc = 0;
 	struct venus_hfi_device *device = list_first_entry(
 			&hal_ctxt.dev_head, struct venus_hfi_device, list);
-	char msg[SUBSYS_CRASH_REASON_LEN];
 
 	if (!device) {
 		d_vpr_e("%s: NULL device\n", __func__);
@@ -2956,9 +2980,6 @@ static void venus_hfi_pm_handler(struct work_struct *work)
 		d_vpr_e("Failed to PC for %d times\n",
 				device->skip_pc_count);
 		device->skip_pc_count = 0;
-		snprintf(msg, sizeof(msg),
-			"Failed to prepare for PC, rc : %d\n", rc);
-		subsystem_crash_reason("venus", msg);
 		__process_fatal_error(device);
 		return;
 	}
@@ -3109,7 +3130,6 @@ static void print_sfr_message(struct venus_hfi_device *device)
 			vsfr->rg_data[vsfr_size - 1] = '\0';
 
 		d_vpr_e("SFR Message from FW: %s\n", vsfr->rg_data);
-		venus_hfi_crash_reason(vsfr);
 	}
 }
 
@@ -4906,6 +4926,7 @@ void venus_hfi_delete_device(void *device)
 static void venus_init_hfi_callbacks(struct hfi_device *hdev)
 {
 	hdev->core_init = venus_hfi_core_init;
+	hdev->core_ping = venus_hfi_core_ping;
 	hdev->core_release = venus_hfi_core_release;
 	hdev->core_trigger_ssr = venus_hfi_core_trigger_ssr;
 	hdev->session_init = venus_hfi_session_init;
