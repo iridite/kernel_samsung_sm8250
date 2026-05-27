@@ -16,7 +16,7 @@ jobs:
       run: echo "init_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
     - uses: archiemeng/rebase-upstream-action@master
       with:
-        upstream: LineageOS/android_kernel_sony_sm8250
+        upstream: LineageOS/android_kernel_samsung_sm8250
         branch: lineage-23.2
         depth: 0
     - name: Get current hash
