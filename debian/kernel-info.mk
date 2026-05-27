@@ -167,7 +167,12 @@ CLANG_CUSTOM = 1
 
 # Extra paths to prepend to the PATH variable. You'll probably want
 # to specify the clang path here (the default).
-BUILD_PATH = /usr/lib/llvm-android-10.0-r370808/bin
+BUILD_PATH = /usr/lib/llvm-android-14.0-r450784d/bin
+
+# Allow the build to continue past Samsung-downstream / LineageOS-23.2
+# strict -Werror=unused-variable on fs/f2fs/data.c:721 ('inode' unused on
+# one path). Propagates into KBUILD_CFLAGS via the kernel's KCFLAGS hook.
+KERNEL_BUILD_FLAGS = KCFLAGS="-Wno-error=unused-variable -Wno-error=unused-but-set-variable"
 
 # Extra packages to add to the Build-Depends section. Mainline builds
 # can have this section empty, unless cross-building.
