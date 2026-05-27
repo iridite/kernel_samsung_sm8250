@@ -7,3 +7,22 @@ BUILD_COMMAND := $(BUILD_COMMAND) DTC_EXT=/usr/bin/dtc $(KERNEL_BUILD_FLAGS)
 
 %:
 	dh $@
+
+# Samsung ABL on Tab S7+ silently rejects boot.img without the SEANDROIDENFORCE
+# trailer on the kernel binary. After the snippet has built the boot.img and
+# recovery.img into debian/linux-bootimage-*/boot/, re-unpack each, append the
+# literal 16-byte ASCII string "SEANDROIDENFORCE" to the raw kernel, repack
+# with mkbootimg using the same header values, and overwrite the original.
+# Done as override_dh_install so it runs after build but before deb packaging.
+override_dh_install:
+	dh_install
+	@set -eu; \
+	for img in $$(find debian/linux-bootimage-*/boot -maxdepth 1 -name 'boot.img-*' -o -name 'recovery.img-*' 2>/dev/null); do \
+	  echo "I: Patching $$img with SEANDROIDENFORCE trailer on kernel section"; \
+	  python3 debian/seandroid-patch.py "$$img"; \
+	done
+
+# Helper: also drop the python patcher into debian/ so override_dh_install can call it
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f debian/seandroid-patch.py.cleaned
