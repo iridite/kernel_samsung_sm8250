@@ -1,11 +1,14 @@
-# Droidian's kernel-deb embeds firmware blobs into the kernel image via
-# CONFIG_EXTRA_FIRMWARE, so all *.bin / *.fw / *.csp / *.dsp files under
-# this directory must be tracked. Upstream Linux ignores them on the
-# assumption they'll come from /lib/firmware at runtime — that's not our
-# model here.
-#
-# What we still ignore: generated assembly/source (gen.S) and the host
-# ihex2fw helper produced during build.
+# Override the root .gitignore's `*.bin`, `*.fw`, `*.csp`, `*.dsp` rules
+# for everything under firmware/. Droidian's kernel-deb embeds firmware
+# blobs into the kernel image via CONFIG_EXTRA_FIRMWARE, so these have
+# to ship in-tree. Upstream Linux ignores them on the assumption that
+# /lib/firmware will provide them at runtime — that's not our model.
+!*.bin
+!*.fw
+!*.csp
+!*.dsp
 
+# Still ignore generated artefacts (assembly source from binary blobs
+# and the host helper) — produced during build, never committed.
 *.gen.S
 ihex2fw
