@@ -64,9 +64,10 @@ modules.builtin
 /*.spec
 
 #
-# Debian directory (make deb-pkg)
+# Debian directory: we ship one for Droidian packaging (kernel-snippet.mk
+# under debian/rules), so do NOT ignore /debian/. Keep upstream's
+# /snap/ ignore for `make snap-pkg`.
 #
-/debian/
 
 #
 # Snap directory (make snap-pkg)
