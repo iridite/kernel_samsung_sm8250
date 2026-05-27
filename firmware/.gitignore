@@ -1,16 +1,11 @@
-*.gen.S
-*.fw
-*.bin
-*.csp
-*.dsp
-ihex2fw
+# Droidian's kernel-deb embeds firmware blobs into the kernel image via
+# CONFIG_EXTRA_FIRMWARE, so all *.bin / *.fw / *.csp / *.dsp files under
+# this directory must be tracked. Upstream Linux ignores them on the
+# assumption they'll come from /lib/firmware at runtime — that's not our
+# model here.
+#
+# What we still ignore: generated assembly/source (gen.S) and the host
+# ihex2fw helper produced during build.
 
-# Samsung touchscreen firmware blobs that CONFIG_EXTRA_FIRMWARE wants
-# embedded into the kernel image. LineageOS ships them via the Android
-# vendor firmware partition at runtime; Droidian's kernel-deb embeds them
-# directly, so they need to be in-tree.
-!tsp_stm/fts1ba90a_gts5.bin
-!tsp_stm/fts1ba90a_gts7xl.bin
-!tsp_stm/fts5cu56a_r8.bin
-!tsp_stm/fts9cu80f_bloom.fw
-!tsp_stm/fts9cu80f_f2.fw
+*.gen.S
+ihex2fw
