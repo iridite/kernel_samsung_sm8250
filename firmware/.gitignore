@@ -4,3 +4,13 @@
 *.csp
 *.dsp
 ihex2fw
+
+# Samsung touchscreen firmware blobs that CONFIG_EXTRA_FIRMWARE wants
+# embedded into the kernel image. LineageOS ships them via the Android
+# vendor firmware partition at runtime; Droidian's kernel-deb embeds them
+# directly, so they need to be in-tree.
+!tsp_stm/fts1ba90a_gts5.bin
+!tsp_stm/fts1ba90a_gts7xl.bin
+!tsp_stm/fts5cu56a_r8.bin
+!tsp_stm/fts9cu80f_bloom.fw
+!tsp_stm/fts9cu80f_f2.fw
