@@ -227,13 +227,17 @@ KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/soc/Module
 endif
 
 ifeq ($(KERNEL_BUILD), 1)
-	obj-y	+= wcd934x/
-	obj-y	+= wcd937x/
-	obj-y	+= wcd938x/
-	obj-y	+= bolero/
-	obj-y	+= rouleur/
-	obj-y	+= wsa883x/
-	obj-y	+= sdm660_cdc/
+	# Samsung WCD/bolero/etc subdir descents disabled: not needed for the
+	# boot-test build, and entering them triggers 'prerequisites cannot be
+	# defined in recipes' from GNU Make 4.4 on their malformed Makefile.lib
+	# commands (unclosed parens in cmd_bzip2/cmd_lzma/cmd_lzo).
+	# obj-y	+= wcd934x/
+	# obj-y	+= wcd937x/
+	# obj-y	+= wcd938x/
+	# obj-y	+= bolero/
+	# obj-y	+= rouleur/
+	# obj-y	+= wsa883x/
+	# obj-y	+= sdm660_cdc/
 endif
 # Module information used by KBuild framework
 obj-$(CONFIG_WCD9XXX_CODEC_CORE) += wcd_core_dlkm.o
