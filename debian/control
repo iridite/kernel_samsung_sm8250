@@ -30,7 +30,7 @@ Standards-Version: 4.5.0.3
 Vcs-Browser: https://github.com/mukahraman/kernel_samsung_sm8250
 Vcs-Git: https://github.com/mukahraman/kernel_samsung_sm8250.git
 
-Package: linux-image-4.19-113-samsung-gts7xlwifi
+Package: linux-image-4.19.113-samsung-gts7xlwifi
 Architecture: arm64
 Depends: ${misc:Depends}
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi
@@ -39,13 +39,13 @@ Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi
  .
  Note: This package only ships the kernel image and modules. For a flashable
  boot image suitable for Android bootloaders, see
- linux-bootimage-4.19-113-samsung-gts7xlwifi.
+ linux-bootimage-4.19.113-samsung-gts7xlwifi.
 
-Package: linux-bootimage-4.19-113-samsung-gts7xlwifi
+Package: linux-bootimage-4.19.113-samsung-gts7xlwifi
 Architecture: arm64
 Pre-Depends: flash-bootimage (>= 4)
 Depends: ${misc:Depends},
-         linux-image-4.19-113-samsung-gts7xlwifi (= ${binary:Version})
+         linux-image-4.19.113-samsung-gts7xlwifi (= ${binary:Version})
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi - Android Boot Image
  This package contains the Linux kernel for the Samsung Galaxy Tab S7+ Wi-Fi
  (SM-T970, codename gts7xlwifi) device.
@@ -53,31 +53,31 @@ Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi - Android Boot Image
  Note: This package ships an Android Boot Image bundled with Halium's
  initramfs.
 
-Package: linux-headers-4.19-113-samsung-gts7xlwifi
+Package: linux-headers-4.19.113-samsung-gts7xlwifi
 Architecture: arm64
 Depends: ${misc:Depends},
-         linux-image-4.19-113-samsung-gts7xlwifi (= ${binary:Version})
+         linux-image-4.19.113-samsung-gts7xlwifi (= ${binary:Version})
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi - Headers
  This package contains the Linux kernel headers for the Samsung Galaxy Tab S7+
  Wi-Fi (SM-T970, codename gts7xlwifi) device.
 
 Package: linux-image-samsung-gts7xlwifi
 Architecture: arm64
-Depends: linux-image-4.19-113-samsung-gts7xlwifi (= ${binary:Version})
+Depends: linux-image-4.19.113-samsung-gts7xlwifi (= ${binary:Version})
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi (latest)
  This metapackage depends on the latest kernel image available for the
  Samsung Galaxy Tab S7+ Wi-Fi.
 
 Package: linux-bootimage-samsung-gts7xlwifi
 Architecture: arm64
-Depends: linux-bootimage-4.19-113-samsung-gts7xlwifi (= ${binary:Version})
+Depends: linux-bootimage-4.19.113-samsung-gts7xlwifi (= ${binary:Version})
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi - Android Boot Image (latest)
  This metapackage depends on the latest kernel bootimage available for the
  Samsung Galaxy Tab S7+ Wi-Fi.
 
 Package: linux-headers-samsung-gts7xlwifi
 Architecture: arm64
-Depends: linux-headers-4.19-113-samsung-gts7xlwifi (= ${binary:Version})
+Depends: linux-headers-4.19.113-samsung-gts7xlwifi (= ${binary:Version})
 Description: Linux kernel for Samsung Galaxy Tab S7+ Wi-Fi - Headers (latest)
  This metapackage depends on the latest kernel headers available for the
  Samsung Galaxy Tab S7+ Wi-Fi.

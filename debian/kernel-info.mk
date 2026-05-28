@@ -7,8 +7,11 @@
 # kernels.
 VARIANT = android
 
-# Kernel base version
-KERNEL_BASE_VERSION = 4.19-113
+# Kernel base version. Use proper X.Y.Z form (4.19.113, dots not dashes)
+# so the resulting KERNELRELEASE = "4.19.113-samsung-gts7xlwifi" has a
+# 'Linux version 4.19.113-...' banner matching the upstream Linux
+# version-string format that Samsung ABL may pattern-check against.
+KERNEL_BASE_VERSION = 4.19.113
 
 # Match the TWRP / stock cmdline byte-for-byte. Droidian-specific tokens
 # (loop.max_part, droidian.lvm.prefer, etc) are appended by initramfs / late
