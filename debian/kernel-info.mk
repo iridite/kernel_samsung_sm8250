@@ -113,7 +113,9 @@ BUILD_CLANG_TRIPLET = aarch64-linux-gnu-
 # clang-android-14 toolchain.
 BUILD_CC = clang
 CLANG_CUSTOM = 1
-BUILD_PATH = /usr/lib/llvm-android-14.0-r450784d/bin
+# Use clang+LLVM 10.0.0 prebuilt (matches ianmacd's TWRP build exactly).
+# Downloaded by CI workflow to /build/sources/clang10/bin before container start.
+BUILD_PATH = /build/sources/clang10/bin
 
 # Tolerate Samsung-downstream -Werror strictness mismatches with newer clang.
 KERNEL_BUILD_FLAGS = KCFLAGS="-Wno-error=unused-variable -Wno-error=unused-but-set-variable -Wno-error=unused-function -Wno-error=unused-const-variable -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=frame-address -Wno-error=address-of-packed-member -Wno-error=strict-prototypes -fno-builtin-stpcpy"

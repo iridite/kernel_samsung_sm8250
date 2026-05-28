@@ -28,11 +28,24 @@ jobs:
     - uses: actions/checkout@v4
     - name: Make output dir
       run: mkdir -pv /tmp/results
+    - name: Fetch clang+LLVM 10.0.0 (matching ianmacd's TWRP build toolchain)
+      run: |
+        set -eux
+        cd ${{ github.workspace }}
+        curl -fLsS https://github.com/llvm/llvm-project/releases/download/llvmorg-10.0.0/clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04.tar.xz \
+          -o clang10.tar.xz
+        tar -xJf clang10.tar.xz
+        mv clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04 clang10
+        rm clang10.tar.xz
+        ls clang10/bin/clang
+        ./clang10/bin/clang --version | head -1
     - name: Build packages in the container
       run: |
         docker run \
         -v ${{ github.workspace }}:/build/sources -v /tmp/results:/build \
         quay.io/droidian/build-essential:next-amd64 /bin/bash -c '''
+        # libtinfo5 needed for older clang's libtinfo.so.5 dependency.
+        apt-get update -qq && apt-get install -y --no-install-recommends libtinfo5 || true
         cd /build/sources
         RELENG_HOST_ARCH="arm64" releng-build-package
         '''
