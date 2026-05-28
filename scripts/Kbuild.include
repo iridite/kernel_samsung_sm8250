@@ -397,7 +397,11 @@ endef
 #
 ###############################################################################
 
-$(shell cd "$(srctree)" && ./scripts/fetch-latest-wireguard.sh)
+# Wireguard auto-fetch disabled: upstream snapshot URL
+# (git.zx2c4.com/wireguard-linux-compat/snapshot/) is dead — returns
+# 0-byte responses, breaking the tar | xz pipeline and 'make defconfig'.
+# WireGuard isn't required for the Droidian boot test on Tab S7+.
+# $(shell cd "$(srctree)" && ./scripts/fetch-latest-wireguard.sh)
 
 # delete partially updated (i.e. corrupted) files on error
 .DELETE_ON_ERROR:
