@@ -232,7 +232,9 @@ AES_ENTRY(aes_ctr_encrypt)
 	bmi		.Lctr1x
 	cmn		w6, #4			/* 32 bit overflow? */
 	bcs		.Lctr1x
-	ldr		q8, =0x30000000200000001	/* addends 1,2,3[,0] */
+	/* clang's integrated assembler rejects 68-bit literals in ldr-literal */
+	/* form; place the 128-bit constant in a labelled pool and load via PC. */
+	ldr		q8, .Laes_modes_addends
 	dup		v7.4s, w6
 	mov		v0.16b, v4.16b
 	add		v7.4s, v7.4s, v8.4s
@@ -297,6 +299,15 @@ AES_ENTRY(aes_ctr_encrypt)
 	b		.Lctrcarrydone
 AES_ENDPROC(aes_ctr_encrypt)
 	.ltorg
+
+	/* 128-bit literal pool for the .LctrloopNx loop above. */
+	/* clang IAS rejects 68-bit literals in `ldr Qd, =literal` form. */
+	.balign 16
+.Laes_modes_addends:
+	.word 1
+	.word 2
+	.word 3
+	.word 0
 
 
 	/*
