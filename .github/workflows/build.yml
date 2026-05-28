@@ -44,7 +44,8 @@ jobs:
         docker run -u root \
         -v ${{ github.workspace }}:/build/sources -v /tmp/results:/build \
         quay.io/droidian/build-essential:next-amd64 /bin/bash -c '''
-        ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+        curl -fLsS -o /tmp/libtinfo5.deb http://ftp.debian.org/debian/pool/main/n/ncurses/libtinfo5_6.2+20201114-2+deb11u2_amd64.deb
+        dpkg -i /tmp/libtinfo5.deb
         cd /build/sources
         RELENG_HOST_ARCH="arm64" releng-build-package
         '''
