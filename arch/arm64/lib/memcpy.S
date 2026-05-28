@@ -68,7 +68,10 @@
 	stp \ptr, \regB, [\regC], \val
 	.endm
 
-	.weak memcpy
+/*
+ * Removed '.weak memcpy' — clang IAS rejects 'changed binding to STB_GLOBAL'
+ * when ENTRY(memcpy) then declares it .global. GNU as silently accepts.
+ */
 ENTRY(__memcpy)
 ENTRY(memcpy)
 #include "copy_template.S"

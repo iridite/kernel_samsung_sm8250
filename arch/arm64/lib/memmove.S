@@ -57,7 +57,7 @@ C_h	.req	x12
 D_l	.req	x13
 D_h	.req	x14
 
-	.weak memmove
+/* '.weak memmove' removed for clang IAS; see memcpy.S for rationale. */
 ENTRY(__memmove)
 ENTRY(memmove)
 	cmp	dstin, src

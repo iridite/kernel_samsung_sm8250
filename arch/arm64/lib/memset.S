@@ -54,7 +54,7 @@ dst		.req	x8
 tmp3w		.req	w9
 tmp3		.req	x9
 
-	.weak memset
+/* '.weak memset' removed for clang IAS; see memcpy.S for rationale. */
 ENTRY(__memset)
 ENTRY(memset)
 	mov	dst, dstin	/* Preserve return value.  */
