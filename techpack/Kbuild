@@ -1,8 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
 TECHPACK?=y
 
-techpack-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*")
+# Skip audio/ — Samsung's downstream Makefile.lib has malformed multi-line
+# command definitions (cmd_bzip2/cmd_lzma/cmd_lzo have unclosed parens) that
+# GNU Make 4.4+ rejects with 'prerequisites cannot be defined in recipes' as
+# soon as Make starts processing the audio subtree's Kbuilds. We don't need
+# audio for the boot test.
+techpack-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*" -not -name "audio")
 obj-${TECHPACK} += stub/ $(addsuffix /,$(subst $(srctree)/techpack/,,$(techpack-dirs)))
 
-techpack-header-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*")
+techpack-header-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*" -not -name "audio")
 header-${TECHPACK} += $(addsuffix /include/uapi/,$(subst $(srctree)/techpack/,,$(techpack-header-dirs)))
