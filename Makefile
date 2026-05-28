@@ -505,7 +505,12 @@ endif
 ifneq ($(GCC_TOOLCHAIN),)
 CLANG_FLAGS	+= --gcc-toolchain=$(GCC_TOOLCHAIN)
 endif
-CLANG_FLAGS	+= -no-integrated-as
+# Use clang's integrated assembler. Samsung downstream defaulted to
+# -no-integrated-as because their original toolchain (clang 7-10 era) had
+# subtle asm-syntax mismatches; modern clang-14+ handles all arm64 kernel
+# asm correctly and is the only sane choice on a build host whose system
+# /usr/bin/as is x86_64 and rejects ARM-specific flags like -EL.
+CLANG_FLAGS	+= -integrated-as
 CLANG_FLAGS	+= $(call cc-option, -Wno-misleading-indentation)
 CLANG_FLAGS	+= $(call cc-option, -Wno-bool-operation)
 CLANG_FLAGS	+= -Werror=unknown-warning-option
