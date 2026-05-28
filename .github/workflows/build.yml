@@ -28,7 +28,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Make output dir
       run: mkdir -pv /tmp/results
-    - name: Fetch clang+LLVM 10.0.0 (matching ianmacd's TWRP build toolchain)
+    - name: Fetch clang+LLVM 10.0.0 + libtinfo5
       run: |
         set -eux
         cd ${{ github.workspace }}
@@ -37,15 +37,17 @@ jobs:
         tar -xJf clang10.tar.xz
         mv clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04 clang10
         rm clang10.tar.xz
-        ls clang10/bin/clang
         ./clang10/bin/clang --version | head -1
+        # libtinfo5 deb from Debian bullseye (Trixie no longer ships it)
+        curl -fLsS -o libtinfo5.deb \
+          http://ftp.debian.org/debian/pool/main/n/ncurses/libtinfo5_6.2+20201114-2+deb11u2_amd64.deb
+        ls -lh libtinfo5.deb
     - name: Build packages in the container
       run: |
         docker run -u root \
         -v ${{ github.workspace }}:/build/sources -v /tmp/results:/build \
         quay.io/droidian/build-essential:next-amd64 /bin/bash -c '''
-        curl -fLsS -o /tmp/libtinfo5.deb http://ftp.debian.org/debian/pool/main/n/ncurses/libtinfo5_6.2+20201114-2+deb11u2_amd64.deb
-        dpkg -i /tmp/libtinfo5.deb
+        dpkg -i /build/sources/libtinfo5.deb
         cd /build/sources
         RELENG_HOST_ARCH="arm64" releng-build-package
         '''
