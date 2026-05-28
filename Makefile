@@ -511,6 +511,10 @@ endif
 # asm correctly and is the only sane choice on a build host whose system
 # /usr/bin/as is x86_64 and rejects ARM-specific flags like -EL.
 CLANG_FLAGS	+= -integrated-as
+# vdso links via 'clang -Wl,...'. Without -fuse-ld=lld clang picks the host
+# /usr/bin/x86_64-linux-gnu-ld.bfd, which doesn't understand 'aarch64linux'.
+# lld is multi-arch and bundled with the Android clang toolchain.
+CLANG_FLAGS	+= -fuse-ld=lld
 CLANG_FLAGS	+= $(call cc-option, -Wno-misleading-indentation)
 CLANG_FLAGS	+= $(call cc-option, -Wno-bool-operation)
 CLANG_FLAGS	+= -Werror=unknown-warning-option
