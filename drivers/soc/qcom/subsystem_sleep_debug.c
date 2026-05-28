@@ -56,15 +56,15 @@ static struct subsystem_debug_info {
 
 static bool subsystem_is_expected_state(struct subsystem_debug_info *debug_info)
 {
-	extern bool voice_activated;
-
-	if ((!strncmp(debug_info->name, "adsp", 4)
-			&& voice_activated)) {
-		pr_info("%s: skip duration check(%d)\n", __func__,
-			voice_activated);
-		return true;
-	} else
-		return false;
+	/*
+	 * 'voice_activated' is defined in techpack/audio/dsp/q6voice.c, which
+	 * we exclude from the build (techpack/Kbuild) to dodge GNU Make 4.4
+	 * crashes on Samsung's malformed audio Makefile.lib. Stub to false;
+	 * this is just a debug helper that skips ADSP-during-voice duration
+	 * checks. Falling through normally is safe.
+	 */
+	(void)debug_info;
+	return false;
 }
 
 static void subsystem_detect_sleep_error(
