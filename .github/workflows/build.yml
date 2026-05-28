@@ -44,7 +44,7 @@ jobs:
         docker run -u root \
         -v ${{ github.workspace }}:/build/sources -v /tmp/results:/build \
         quay.io/droidian/build-essential:next-amd64 /bin/bash -c '''
-        apt-get update -qq && apt-get install -y --no-install-recommends libtinfo5 || true
+        ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
         cd /build/sources
         RELENG_HOST_ARCH="arm64" releng-build-package
         '''
