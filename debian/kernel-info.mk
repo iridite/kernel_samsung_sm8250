@@ -36,8 +36,11 @@ KERNEL_CONFIG_USE_DIFFCONFIG = 0
 
 KERNEL_CONFIG_EXTRA_FRAGMENTS = extra.config
 
-# Defconfig to use — Samsung's official Galaxy Tab S7+ EUR open defconfig.
-KERNEL_DEFCONFIG = vendor/gts7xl_eur_open_defconfig
+# Defconfig: ianmacd's caliban variant (the one his accepted TWRP kernel uses).
+# Differences from the openx variant include: SELinux default (not AppArmor),
+# CONFIG_BUILD_ARM64_UNCOMPRESSED_KERNEL=y, CRYPTO_FIPS, CFQ I/O sched.
+# Hypothesis: matching the defconfig may match the ABL-acceptable kernel build.
+KERNEL_DEFCONFIG = vendor/gts7xl_eur_openx_caliban_defconfig
 
 # Whether to include DTBs with the image.
 KERNEL_IMAGE_WITH_DTB = 1
