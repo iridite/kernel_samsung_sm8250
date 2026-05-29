@@ -8701,7 +8701,12 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		}
 
 		rc = of_property_read_u32(dev->of_node, "qcom,wcn-bt", &val);
-		if (!rc && val) {
+		/* gts7xlwifi: CONFIG_BT is disabled, so the btfmslim codec
+		 * (btfm_bt_sco_a2dp_slim_rx) never registers and these WCN BT
+		 * SCO/A2DP DAI links block the whole sound card on deferred probe.
+		 * Skip them — BT audio routing is moot without BT. Re-add when BT
+		 * is brought up. (force-disabled regardless of the qcom,wcn-bt DT prop) */
+		if (0 && !rc && val) {
 			dev_dbg(dev, "%s(): WCN BT support present\n",
 				__func__);
 			memcpy(msm_kona_dai_links + total_links,
@@ -8736,7 +8741,9 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 			dev_dbg(dev, "%s: No DT match wcn btfm interface\n",
 				__func__);
 		} else {
-			if (wcn_btfm_intf) {
+			/* gts7xlwifi: see qcom,wcn-bt note above — BT disabled, skip
+			 * the BTFM DAI links too so the card isn't blocked. */
+			if (0 && wcn_btfm_intf) {
 				memcpy(msm_kona_dai_links + total_links,
 					msm_wcn_btfm_be_dai_links,
 					sizeof(msm_wcn_btfm_be_dai_links));
