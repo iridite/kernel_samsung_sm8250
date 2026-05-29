@@ -317,7 +317,7 @@ static inline void sec_debug_pm_restart(char *cmd)
 	asm volatile ("b .");
 }
 
-static void __sec_debug_hw_reset(void)
+static void __maybe_unused __sec_debug_hw_reset(void)
 {
 	sec_debug_pm_restart("sec_debug_hw_reset");
 }
@@ -739,7 +739,12 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 	 * corrupt stacks below the saved sp
 	 */
 	sec_debug_save_context();
-	__sec_debug_hw_reset();
+	/* TEMP DEBUG (gts7xlwifi Droidian bring-up): do NOT hardware-reset here.
+	 * This unconditional reset makes every boot-time panic an invisible instant
+	 * reboot-loop. Skipping it lets panic() honour panic_timeout=0 and halt with
+	 * the panic message on console=tty0 so the boot fault can be read.
+	 * REVERT (restore __sec_debug_hw_reset();) for production. */
+	/* __sec_debug_hw_reset(); */
 
 	return 0;
 }
