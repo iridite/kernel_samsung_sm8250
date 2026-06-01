@@ -7,8 +7,9 @@
 #define CONFIG_DRM_MSM_SDE 1
 #define CONFIG_SYNC_FILE 1
 #define CONFIG_DRM_MSM_DSI 1
-#define CONFIG_DRM_MSM_DP 1
-#define CONFIG_QCOM_MDSS_DP_PLL 1
+/* DisplayPort disabled on gts7xlwifi: USB-C DP is unused, and its driver's
+ * secdp_event/dp_hdcp2p2/hdcp_2x kthreads wedge in D-state every boot (load ~3,
+ * stalls fork). DP is separate from the DSI panel + SDE. Mirrors bengaldisp (DP=n). */
 #define CONFIG_DSI_PARSER 1
 #define CONFIG_DRM_SDE_WB 1
 #define CONFIG_DRM_MSM_REGISTER_LOGGING 1
