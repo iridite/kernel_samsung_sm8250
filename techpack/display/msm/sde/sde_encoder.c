@@ -2145,8 +2145,17 @@ static int _sde_encoder_update_rsc_client(
 		rsc_state = SDE_RSC_CLK_STATE;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	if (vdd->rsc_4_frame_idle && rsc_state == SDE_RSC_CMD_STATE)
-		rsc_state = SDE_RSC_CLK_STATE;
+	/*
+	 * gts7xl (Droidian): keep CMD/solver state — do NOT force CLK here.
+	 * rsc_4_frame_idle is set for this panel (S6TUUM2/3); forcing the RSC
+	 * out of solver mode strands ALL display power votes on apps_rsc
+	 * (disp_rsc left dormant) -> RPMh "TCS Busy" storm (~40-50k retries/s
+	 * at idle) -> intermittent whole-userspace idle freeze, confirmed via
+	 * /proc/last_kmsg post-mortem (needed a power-button hard-reset).
+	 *
+	 * if (vdd->rsc_4_frame_idle && rsc_state == SDE_RSC_CMD_STATE)
+	 *	rsc_state = SDE_RSC_CLK_STATE;
+	 */
 
 	if (vdd->vrr.support_vrr_based_bl) {
 		if ((vdd->vrr.running_vrr_mdp || vdd->vrr.running_vrr) &&
